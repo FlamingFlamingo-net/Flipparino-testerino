@@ -234,6 +234,22 @@ class FillTests(LedgerCase):
         row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
         self.assertEqual((row["verb"], row["price"]), ("CHANGE", 1_061))
 
+    def test_slots_stable_and_inherited(self):
+        s = desk.load_state()
+        slots = [o["slot"] for o in desk.open_orders(s)]
+        self.assertEqual(len(slots), len(set(slots)), "each GE slot holds one offer")
+        self.assertTrue(all(1 <= k <= desk.SLOTS for k in slots))
+        n, o = self.num("Bones")
+        out = self.fill(n)  # finished buy -> collected and relisted in the same slot
+        self.assertIn(f"(slot {o['slot']})", out)
+        self.age(1)
+        self.plan()
+        s = desk.load_state()
+        bones_sell = next(x for x in s["orders"] if x["side"] == "sell" and x["name"] == "Bones")
+        self.assertEqual(bones_sell["slot"], o["slot"])
+        slots = [x["slot"] for x in desk.open_orders(s)]
+        self.assertEqual(len(slots), len(set(slots)))
+
     def test_pinned_offer_survives_review(self):
         n, o = self.num("Bones")
         self.run_cmd(desk.cmd_edit, n=n, price=1, qty=None, pin=True)  # absurd price on purpose

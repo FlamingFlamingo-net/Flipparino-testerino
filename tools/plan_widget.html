@@ -7,9 +7,11 @@
 <style>
   .plan { display: grid; gap: .35rem; font-size: 13px; max-width: 760px; }
   .plan h2 { font-size: 14px; margin: 0 0 .25rem; }
-  .row { display: grid; grid-template-columns: 1.6rem 4.4rem minmax(0, 1fr); gap: .5rem; align-items: start;
+  .row { display: grid; grid-template-columns: 3.6rem 4.4rem minmax(0, 1fr); gap: .5rem; align-items: start;
          padding: .45rem .5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
-  .n { font-weight: 600; color: var(--muted-foreground); padding-top: 2px; }
+  .n { display: grid; gap: 1px; padding-top: 1px; }
+  .n .slot { font-weight: 700; font-size: 12px; white-space: nowrap; }
+  .n .num { font-size: 11px; color: var(--muted-foreground); }
   .verb { font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 2px 6px; border-radius: 5px;
           border: 1px solid var(--border); text-align: center; }
   .v-BUY { color: #16a34a; } .v-SELL { color: #2563eb; } .v-ABORT { color: #dc2626; }
@@ -95,7 +97,9 @@ for (const r of data.rows) {
   if (r.then_sell != null) main.append(field('then sell @', r.then_sell));
   if (r.trait) main.append(h('span', 'trait', r.trait));
   if (r.note) main.append(h('span', 'note', r.note));
-  row.append(h('span', 'n', r.n), h('span', `verb v-${r.verb}`, r.verb), main);
+  const n = h('span', 'n');
+  n.append(h('span', 'slot', r.slot ? `Slot ${r.slot}` : '—'), h('span', 'num', `#${r.n}`));
+  row.append(n, h('span', `verb v-${r.verb}`, r.verb), main);
   rows.append(row);
 }
 </script>

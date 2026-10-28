@@ -471,8 +471,10 @@ def cmd_plan(args):
             actions.append(("new", o, None))
 
     # 4) number and record
+    assign_slots(s, actions)
     rank = {"abort": 0, "reprice": 1, "new": 2, "keep": 3}
-    actions.sort(key=lambda a: (rank[a[0]], a[1]["side"] != "sell"))
+    # walk the GE screen slot by slot; inside a slot, abort before the replacement
+    actions.sort(key=lambda a: (a[1].get("slot") or 99, rank[a[0]]))
     # unique per run: several plans can happen in one half-day (refresh), and widget rows are
     # rebuilt by matching order logs to this id
     plan_id = f"{t:%Y-%m-%d}-{'am' if t.hour < 12 else 'pm'}-{t:%H%M%S}"
@@ -483,7 +485,10 @@ def cmd_plan(args):
     pmap, lines = {}, []
     for n, (kind, o, note) in enumerate(actions, 1):
         pmap[str(n)] = o["id"]
-        lines.append(render_action(n, kind, o, note, items, s))
+        line = render_action(n, kind, o, note, items, s)
+        if o.get("slot"):
+            line = line.replace(f"{n}) ", f"{n}) **[Slot {o['slot']}]** ", 1)
+        lines.append(line)
 
     if not args.dry_run:
         for kind, o, note in actions:
@@ -530,7 +535,7 @@ def plan_rows(s, plan) -> list[dict]:
         o = by_id[oid]
         log = next((e for e in reversed(o.get("log", [])) if e.get("plan") == plan["id"]), None)
         rem = o["qty"] - sum(f["qty"] for f in o["fills"] if f["at"] < plan["at"])
-        row = {"n": int(n), "item": o["name"], "star": bool(o.get("watch"))}
+        row = {"n": int(n), "item": o["name"], "star": bool(o.get("watch")), "slot": o.get("slot")}
         if log and log["action"] == "abort":
             row.update(verb="ABORT", qty=rem, price=o["price"],
                        note=f"abort this {o['side']} offer and collect what filled" + (f": {log['note']}" if log.get("note") else ""))
@@ -580,6 +585,30 @@ def cmd_widget(_a):
     if not s["plans"]:
         sys.exit("No plan yet.")
     print(f'::preview{{file="{write_widget(s, s["plans"][-1]).as_posix()}"}}')
+
+
+def free_slots(s, exclude=()) -> list[int]:
+    taken = {o.get("slot") for o in open_orders(s) if o["id"] not in exclude}
+    return [k for k in range(1, SLOTS + 1) if k not in taken]
+
+
+def assign_slots(s, actions):
+    """Give every live offer a GE slot (1-8). Kept/changed offers stay where they are; an aborted
+    offer frees its slot; new offers take a slot just freed for the same item, else the lowest free."""
+    live = [a for a in actions if a[0] != "abort"]
+    taken = {a[1]["slot"] for a in live if a[1].get("slot")}
+    freed_by_item = {a[1]["item_id"]: a[1]["slot"] for a in actions if a[0] == "abort" and a[1].get("slot")}
+    for kind, o, _ in live:
+        if o.get("slot") and o["slot"] in taken and kind != "new":
+            continue
+        want = freed_by_item.get(o["item_id"])
+        if want and want not in taken:
+            o["slot"] = want
+        else:
+            free = [k for k in range(1, SLOTS + 1) if k not in taken]
+            o["slot"] = free[0] if free else None
+        if o["slot"]:
+            taken.add(o["slot"])
 
 
 def trait(o) -> str:
@@ -734,12 +763,14 @@ def cmd_fill(a):
             and not a.no_sell and filled(o) > 0):
         sell = new_order(s, "sell", {"id": o["item_id"], "name": o["name"]}, filled(o), o["target_sell"],
                          o.get("strategy", "spread"))
-        sell.update(plan=s["plans"][-1]["id"], note="listed at the plan's sell price", watch=o.get("watch", False))
+        sell.update(plan=s["plans"][-1]["id"], note="listed at the plan's sell price", watch=o.get("watch", False),
+                    slot=o.get("slot"))
         s["orders"].append(sell)
         m = s["plans"][-1]["map"]
         n = max(map(int, m)) + 1
         m[str(n)] = sell["id"]
-        msg = f" Sell offer recorded as trade {n}: {gp(filled(o))} @ {gp(o['target_sell'])}."
+        msg = (f" Sell offer recorded as trade {n}: {gp(filled(o))} @ {gp(o['target_sell'])}"
+               + (f" (slot {sell['slot']})." if sell.get("slot") else "."))
     save_state(s)
     print(f"{o['id']} {o['side']} {o['name']}: +{gp(q)} @ {gp(a.price or o['price'])} → "
           f"{gp(filled(o))}/{gp(o['qty'])} filled, status {o['status']}. Cash {gp(s['cash'])}.{msg}")
@@ -751,6 +782,8 @@ def cmd_edit(a):
     o = order_by_number(s, a.n)
     if a.price is not None:
         o["price"] = a.price
+    if getattr(a, "slot", None):
+        o["slot"] = a.slot
     if a.pin:
         o["pinned"] = True  # user's decision: plans keep this offer as-is, never re-price it
     if a.qty is not None:
@@ -819,6 +852,7 @@ def cmd_add(a):
         o["target_sell"] = None
     o["plan"] = s["plans"][-1]["id"] if s["plans"] else "manual"
     o["note"] = "placed by you"
+    o["slot"] = a.slot or (free_slots(s) or [None])[0]
     s["orders"].append(o)
     if s["plans"]:
         m = s["plans"][-1]["map"]
@@ -987,9 +1021,11 @@ def main():
     p = sub.add_parser("block"); p.add_argument("action", nargs="?", choices=["add", "rm"])
     p.add_argument("name", nargs="?"); p.set_defaults(fn=cmd_block)
     p = sub.add_parser("edit"); p.add_argument("n", type=int); p.add_argument("--price", type=gp_arg)
-    p.add_argument("--qty", type=gp_arg); p.add_argument("--pin", action="store_true"); p.set_defaults(fn=cmd_edit)
+    p.add_argument("--qty", type=gp_arg); p.add_argument("--pin", action="store_true")
+    p.add_argument("--slot", type=int, choices=range(1, SLOTS + 1)); p.set_defaults(fn=cmd_edit)
     p = sub.add_parser("add"); p.add_argument("side", choices=["buy", "sell"]); p.add_argument("name")
-    p.add_argument("qty", type=gp_arg); p.add_argument("price", type=gp_arg); p.set_defaults(fn=cmd_add)
+    p.add_argument("qty", type=gp_arg); p.add_argument("price", type=gp_arg)
+    p.add_argument("--slot", type=int, choices=range(1, SLOTS + 1)); p.set_defaults(fn=cmd_add)
     p = sub.add_parser("watch"); p.add_argument("action", nargs="?", choices=["add", "rm"])
     p.add_argument("name", nargs="?"); p.set_defaults(fn=cmd_watch)
     a = ap.parse_args()
