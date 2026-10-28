@@ -1,0 +1,103 @@
+<!doctype html>
+<!-- RS3 trade desk plan widget. desk.py replaces the DATA placeholder; rendered in the Hermes chat. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trade plan</title>
+<style>
+  .plan { display: grid; gap: .35rem; font-size: 13px; max-width: 760px; }
+  .plan h2 { font-size: 14px; margin: 0 0 .25rem; }
+  .row { display: grid; grid-template-columns: 1.6rem 4.4rem minmax(0, 1fr); gap: .5rem; align-items: start;
+         padding: .45rem .5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+  .n { font-weight: 600; color: var(--muted-foreground); padding-top: 2px; }
+  .verb { font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 2px 6px; border-radius: 5px;
+          border: 1px solid var(--border); text-align: center; }
+  .v-BUY { color: #16a34a; } .v-SELL { color: #2563eb; } .v-ABORT { color: #dc2626; }
+  .v-CHANGE { color: #d97706; } .v-KEEP { color: var(--muted-foreground); }
+  .main { display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: .3rem; }
+  .label { color: var(--muted-foreground); font-size: 11px; }
+  .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .item { font-weight: 600; }
+  .val.big { font-size: 15px; letter-spacing: .02em; }
+  .trait { font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 99px; }
+  .check { flex-basis: 100%; font-size: 12px; color: var(--muted-foreground); }
+  .pre { flex-basis: 100%; font-style: italic; color: var(--muted-foreground); }
+  .note { flex-basis: 100%; color: var(--muted-foreground); font-size: 12px; }
+  button.copy { font: inherit; font-size: 11px; line-height: 1; cursor: pointer; color: var(--foreground);
+                background: transparent; border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; }
+  button.copy:hover { border-color: var(--accent); }
+  button.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.copy.ok { color: #16a34a; border-color: #16a34a; }
+  .foot { color: var(--muted-foreground); font-size: 12px; margin-top: .25rem; }
+</style>
+</head>
+<body>
+<section class="plan" aria-labelledby="plan-title">
+  <h2 id="plan-title"></h2>
+  <div id="rows"></div>
+  <p class="foot" id="foot"></p>
+</section>
+<script type="application/json" id="data">/*DATA*/null</script>
+<script type="module">
+const data = JSON.parse(document.getElementById('data').textContent);
+const fmt = new Intl.NumberFormat('en-US');
+const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+async function copy(text, btn) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = Object.assign(document.createElement('textarea'), { value: text });
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  const old = btn.textContent;
+  btn.textContent = 'Copied'; btn.classList.add('ok');
+  setTimeout(() => { btn.textContent = old; btn.classList.remove('ok'); }, 1200);
+}
+function copyBtn(text, what) {
+  const b = h('button', 'copy', 'Copy');
+  b.type = 'button';
+  b.setAttribute('aria-label', `Copy ${what}`);
+  b.addEventListener('click', () => copy(String(text), b));
+  return b;
+}
+// The GE won't accept pasted numbers, so numbers are shown big and grouped for typing,
+// with the total the GE screen should show as a typo check.
+function field(label, value) {
+  const c = h('span', 'chip');
+  if (label) c.append(h('span', 'label', label));
+  c.append(h('span', 'val big', fmt.format(value)));
+  return c;
+}
+
+document.getElementById('plan-title').textContent = data.title;
+document.getElementById('foot').textContent = data.footer;
+const rows = document.getElementById('rows');
+rows.style.cssText = 'display:grid;gap:.35rem';
+for (const r of data.rows) {
+  const row = h('div', 'row');
+  const main = h('div', 'main');
+  if (r.pre) main.append(h('span', 'pre', r.pre));
+  const item = h('span', 'chip');
+  item.append(h('span', 'item', (r.star ? '★ ' : '') + r.item), copyBtn(r.item, `item name ${r.item}`));
+  main.append(item);
+  if (r.qty != null) main.append(field('qty', r.qty));
+  if (r.price != null) main.append(field('@', r.price));
+  if (r.qty != null && r.price != null && r.verb !== 'KEEP' && r.verb !== 'ABORT') {
+    main.append(h('span', 'check', `GE total should read ${fmt.format(r.qty * r.price)}`));
+  }
+  if (r.grind) {
+    const g = h('span', 'chip');
+    g.append(h('span', 'label', `→ grind into ${fmt.format(r.grind.n)}`), h('span', 'item', r.grind.into), copyBtn(r.grind.into, `item name ${r.grind.into}`));
+    main.append(g);
+  }
+  if (r.then_sell != null) main.append(field('then sell @', r.then_sell));
+  if (r.trait) main.append(h('span', 'trait', r.trait));
+  if (r.note) main.append(h('span', 'note', r.note));
+  row.append(h('span', 'n', r.n), h('span', `verb v-${r.verb}`, r.verb), main);
+  rows.append(row);
+}
+</script>
+</body>
+</html>

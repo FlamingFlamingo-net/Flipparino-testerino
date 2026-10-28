@@ -1,0 +1,9 @@
+# Personal trading data: never in git (backed up separately by tools/backup.py)
+ledger/
+
+# Python
+__pycache__/
+*.pyc
+
+# Scratch
+*.tmp
