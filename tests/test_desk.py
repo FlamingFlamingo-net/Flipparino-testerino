@@ -234,6 +234,15 @@ class FillTests(LedgerCase):
         row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
         self.assertEqual((row["verb"], row["price"]), ("CHANGE", 1_061))
 
+    def test_kept_buy_still_shows_its_sell_price(self):
+        n, o = self.num("Bones")
+        self.age(1)  # not stale: the next plan keeps it
+        out = self.plan()
+        self.assertIn(f"when bought, sell @ {o['target_sell']:,}", out)
+        s = desk.load_state()
+        row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
+        self.assertEqual((row["verb"], row["then_sell"]), ("KEEP", o["target_sell"]))
+
     def test_slots_stable_and_inherited(self):
         s = desk.load_state()
         slots = [o["slot"] for o in desk.open_orders(s)]

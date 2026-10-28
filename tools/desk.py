@@ -562,6 +562,8 @@ def plan_rows(s, plan) -> list[dict]:
                 row["note"] = note
         else:
             row.update(verb="KEEP", qty=rem, price=o["price"], note=f"{o['side']} offer still in the GE, leave it")
+            if o["side"] == "buy" and o.get("target_sell") and not o.get("process"):
+                row["then_sell"] = o["target_sell"]
         rows.append(row)
     return rows
 
@@ -677,7 +679,9 @@ def render_action(n, kind, o, note, items, s):
         return (f"{n}) {pre}**SELL** {o['name']} — **{gp(o['qty'])} @ {gp(o['price'])}** (GE total {gp(o['qty'] * o['price'])}){mkt} · "
                 f"paid {gp(cost_each)} ea · est. {'+' if est >= 0 else ''}{gpc(est)} after tax"
                 + (f". *{tail}*" if tail else ""))
-    return (f"{n}) keep: {side} {o['name']} {gp(rem)}/{gp(o['qty'])} left @ {gp(o['price'])}{mkt} "
+    then = (f" · **when bought, sell @ {gp(o['target_sell'])}**" if o["side"] == "buy" and o.get("target_sell")
+            and not o.get("process") else "")
+    return (f"{n}) keep: {side} {o['name']} {gp(rem)}/{gp(o['qty'])} left @ {gp(o['price'])}{mkt}{then} "
             f"(placed {hours_since(o['placed']):.0f}h ago)")
 
 
