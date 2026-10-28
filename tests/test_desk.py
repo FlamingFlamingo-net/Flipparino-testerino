@@ -217,6 +217,23 @@ class FillTests(LedgerCase):
         self.assertEqual(left, 10_000 - part)
         self.assertAlmostEqual(wait, 4, delta=0.05)
 
+    def test_widget_change_row_shows_latest_price(self):
+        """Two re-prices in the same half-day: the panel must show the newest price, not the first."""
+        n, o = self.num("Bones")
+        self.age(12)
+        self.mk["items"][1].update(low=1_050, l1=1_050, l24=1_050, high=1_150, h1=1_150, h24=1_150)
+        self.plan(review_all=True)
+        self.age(1)
+        self.mk["items"][1].update(low=1_060, l1=1_060, l24=1_060, high=1_160, h1=1_160, h24=1_160)
+        self.plan(review_all=True)
+        s = desk.load_state()
+        ids = [p["id"] for p in s["plans"]]
+        self.assertEqual(len(ids), len(set(ids)), "plan ids must be unique")
+        live = next(x for x in s["orders"] if x["id"] == o["id"])
+        self.assertEqual(live["price"], 1_061)  # re-priced twice
+        row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
+        self.assertEqual((row["verb"], row["price"]), ("CHANGE", 1_061))
+
     def test_pinned_offer_survives_review(self):
         n, o = self.num("Bones")
         self.run_cmd(desk.cmd_edit, n=n, price=1, qty=None, pin=True)  # absurd price on purpose

@@ -473,7 +473,13 @@ def cmd_plan(args):
     # 4) number and record
     rank = {"abort": 0, "reprice": 1, "new": 2, "keep": 3}
     actions.sort(key=lambda a: (rank[a[0]], a[1]["side"] != "sell"))
-    plan_id = f"{t:%Y-%m-%d}-{'am' if t.hour < 12 else 'pm'}"
+    # unique per run: several plans can happen in one half-day (refresh), and widget rows are
+    # rebuilt by matching order logs to this id
+    plan_id = f"{t:%Y-%m-%d}-{'am' if t.hour < 12 else 'pm'}-{t:%H%M%S}"
+    taken = {p["id"] for p in s["plans"]}
+    base_id, k = plan_id, 2
+    while plan_id in taken:
+        plan_id, k = f"{base_id}-{k}", k + 1
     pmap, lines = {}, []
     for n, (kind, o, note) in enumerate(actions, 1):
         pmap[str(n)] = o["id"]
@@ -522,7 +528,7 @@ def plan_rows(s, plan) -> list[dict]:
     by_id = {o["id"]: o for o in s["orders"]}
     for n, oid in sorted(plan["map"].items(), key=lambda kv: int(kv[0])):
         o = by_id[oid]
-        log = next((e for e in o.get("log", []) if e.get("plan") == plan["id"]), None)
+        log = next((e for e in reversed(o.get("log", [])) if e.get("plan") == plan["id"]), None)
         rem = o["qty"] - sum(f["qty"] for f in o["fills"] if f["at"] < plan["at"])
         row = {"n": int(n), "item": o["name"], "star": bool(o.get("watch"))}
         if log and log["action"] == "abort":
