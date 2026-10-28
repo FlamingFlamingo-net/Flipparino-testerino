@@ -49,6 +49,7 @@ DEFAULT_CFG = {
     "stale_hours": 10,        # an offer older than this gets re-priced or aborted
     "watchlist": rm.DEFAULT_WATCHLIST,
     "blacklist": [],          # items the user won't trade (e.g. being removed from the game)
+    "max_price": 50_000_000,  # user: no high-value items / combat gear unless very safe
 }
 DEFAULT_STATE = {
     "version": 3, "capital": 100_000_000, "cash": 100_000_000, "cfg": DEFAULT_CFG,
@@ -281,7 +282,7 @@ def cmd_plan(args):
     # pre-rank on bulk data only, then fetch 7-day hourly history for the best + watchlist
     def potential(it):
         rp = rm.ref_prices(it)
-        if not rp or rp[0] < cfg["min_price"] or (not cfg["members"] and it["members"]):
+        if not rp or rp[0] < cfg["min_price"] or rp[0] > cfg["max_price"] or (not cfg["members"] and it["members"]):
             return 0
         flow = min(it["lv24"], it["hv24"])
         if flow < cfg["min_flow"]:
@@ -404,7 +405,7 @@ def cmd_plan(args):
         ideas = []
         for i in (cand_ids | watch_ids | proven_ids) - used_items:
             it = items[i]
-            if it["name"] in banned:
+            if it["name"] in banned or (rm.ref_prices(it) or (0,))[0] > cfg["max_price"]:
                 continue
             if it["name"] in RECIPE_BY_INPUT:
                 x = rm.suggest_process(RECIPE_BY_INPUT[it["name"]], mk, stats, cfg, per)
@@ -880,6 +881,16 @@ def cmd_limit(a):
     print(f"{a.name}: buy limit resets at {reset:%H:%M}" + (f", {gp(a.used)} used" if a.used is not None else ""))
 
 
+def cmd_deposit(a):
+    """Add (or with a negative amount, withdraw) money; raises the capital cap by the same amount."""
+    s = load_state()
+    s["cash"] += a.amount
+    s["capital"] += a.amount
+    s.setdefault("deposits", []).append({"at": now().isoformat(), "amount": a.amount, "note": a.note or ""})
+    save_state(s)
+    print(f"{'Added' if a.amount >= 0 else 'Withdrew'} {gp(abs(a.amount))} · cash {gp(s['cash'])} · capital {gp(s['capital'])}")
+
+
 def cmd_block(a):
     s = load_state()
     bl = s["cfg"].setdefault("blacklist", [])
@@ -910,7 +921,7 @@ def cmd_watch(a):
 def cmd_totals(_a):
     """Short performance summary ("Totals")."""
     s = load_state()
-    start_cap = s.get("start_capital", 100_000_000)
+    start_cap = s.get("start_capital", 100_000_000) + sum(x["amount"] for x in s.get("deposits", []))
     # one trade = one sell offer (partial fills of the same offer merged)
     trades: dict = {}
     for r_ in s["realized"]:
@@ -949,7 +960,9 @@ def cmd_totals(_a):
     days = max(hours_since(first) / 24, 1 / 24) if first else None
     sign = lambda v: ("+" if v >= 0 else "") + gpc(v)  # noqa: E731
     print(f"Total profit: {sign(realised)} realised" + (f" · {sign(unreal)} unrealised (items still held, if sold at today's prices)" if unreal is not None else ""))
-    print(f"Total money: {gpc(total)} (started {gpc(start_cap)}, {sign(total - start_cap)}, {(total / start_cap - 1) * 100:+.1f}%) "
+    dep = sum(x["amount"] for x in s.get("deposits", []))
+    started = f"put in {gpc(start_cap)}" + (f" = {gpc(start_cap - dep)} start + {gpc(dep)} added" if dep else "")
+    print(f"Total money: {gpc(total)} ({started}, {sign(total - start_cap)}, {(total / start_cap - 1) * 100:+.1f}%) "
           f"= {gpc(s['cash'])} cash + {gpc(held_cost)} in items at cost")
     print(f"Trades completed: {n} · {len(wins)} won, {n - len(wins)} lost" + (f" · win rate {len(wins) / n:.0%}" if n else ""))
     if durs:
@@ -1016,6 +1029,8 @@ def main():
     p.add_argument("cost_each", type=gp_arg); p.set_defaults(fn=cmd_holding)
     sub.add_parser("widget").set_defaults(fn=cmd_widget)
     sub.add_parser("totals").set_defaults(fn=cmd_totals)
+    p = sub.add_parser("deposit"); p.add_argument("amount", type=gp_arg); p.add_argument("--note")
+    p.set_defaults(fn=cmd_deposit)
     p = sub.add_parser("limit"); p.add_argument("name"); p.add_argument("--resets", required=True)
     p.add_argument("--used", type=gp_arg); p.set_defaults(fn=cmd_limit)
     p = sub.add_parser("block"); p.add_argument("action", nargs="?", choices=["add", "rm"])
