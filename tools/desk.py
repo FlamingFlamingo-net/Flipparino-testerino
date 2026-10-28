@@ -86,6 +86,11 @@ def save_state(s: dict) -> None:
     tmp = STATE.with_suffix(".tmp")
     tmp.write_text(json.dumps(s, indent=1), encoding="utf-8")
     tmp.replace(STATE)
+    if s.get("plans"):  # keep the side-panel board in step with every ledger change
+        try:
+            write_widget(s, s["plans"][-1], live=True)
+        except Exception as e:  # a display problem must never block recording a trade
+            print(f"(board not updated: {e})", file=sys.stderr)
 
 
 filled = lambda o: sum(f["qty"] for f in o["fills"])  # noqa: E731
@@ -564,6 +569,9 @@ def plan_rows(s, plan) -> list[dict]:
             row.update(verb="KEEP", qty=rem, price=o["price"], note=f"{o['side']} offer still in the GE, leave it")
             if o["side"] == "buy" and o.get("target_sell") and not o.get("process"):
                 row["then_sell"] = o["target_sell"]
+        row["filled"] = filled(o)
+        row["of"] = o["qty"]
+        row["state"] = o["status"]
         if row.get("qty") is not None and row.get("price") is not None:
             row["side"] = o["side"]
             row["ge_total"] = rm.ge_screen_total(o["side"], row["qty"], row["price"], s["cfg"]["tax_rate"], o["name"])
@@ -571,17 +579,42 @@ def plan_rows(s, plan) -> list[dict]:
     return rows
 
 
-def write_widget(s, plan) -> Path:
+BOARD = "latest.html"  # stable file for the Hermes side panel
+
+
+def write_widget(s, plan, live: bool = False) -> Path:
+    """Render a plan's panel. live=True writes the always-current board (ledger/latest.html),
+    which shows fills and finished offers and reloads itself."""
     t = dt.datetime.fromisoformat(plan["at"])
+    rows = plan_rows(s, plan)
+    if live:  # offers recorded after the plan (auto-sells, `add`) also belong on the board
+        shown = {plan["map"][k] for k in plan["map"]}
+        for o in open_orders(s):
+            if o["id"] not in shown:
+                rows.append({"n": "+", "item": o["name"], "slot": o.get("slot"), "verb": o["side"].upper(),
+                             "qty": remaining(o), "price": o["price"], "filled": filled(o), "of": o["qty"],
+                             "state": o["status"], "side": o["side"], "note": "listed since the plan",
+                             "ge_total": rm.ge_screen_total(o["side"], remaining(o), o["price"],
+                                                            s["cfg"]["tax_rate"], o["name"])})
+        for r_ in rows:  # finished offers: the plan's instruction no longer applies
+            if r_.get("state") == "done":
+                r_["note"] = "finished, collect it"
+            elif r_.get("state") == "cancelled":
+                r_["note"] = "closed, replaced by the offer below" if r_["verb"] == "CHANGE" else "closed"
+        rows.sort(key=lambda r_: (r_.get("slot") or 99, r_["state"] == "open"))
+    real = sum(x["profit"] for x in s["realized"])
     data = {
         "title": f"{t:%A %d %b} — {'morning' if t.hour < 12 else 'afternoon' if t.hour < 17 else 'evening'} plan",
-        "rows": plan_rows(s, plan),
+        "subtitle": (f"Updated {now():%H:%M} · cash {gpc(s['cash'])} · realised P/L {'+' if real >= 0 else ''}{gpc(real)}"
+                     if live else ""),
+        "live": live,
+        "rows": rows,
         "footer": "Copy puts the exact item name on your clipboard for the GE search. Prices can't be pasted: "
                   "type them, then check the GE total matches the line under the offer before confirming.",
     }
     tpl = (Path(__file__).with_name("plan_widget.html")).read_text(encoding="utf-8")
     blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    out = (LEDGER / "plans" / f"{plan['id']}.html").resolve()
+    out = (LEDGER / (BOARD if live else f"plans/{plan['id']}.html")).resolve()
     out.write_text(tpl.replace("/*DATA*/null", blob), encoding="utf-8")
     return out
 

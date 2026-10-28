@@ -32,11 +32,16 @@
   button.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   button.copy.ok { color: #16a34a; border-color: #16a34a; }
   .foot { color: var(--muted-foreground); font-size: 12px; margin-top: .25rem; }
+  .sub { margin: -.2rem 0 .3rem; color: var(--muted-foreground); font-size: 12px; }
+  .row.done { opacity: .5; }
+  .progress-chip { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--border);
+    background: linear-gradient(90deg, color-mix(in oklab, #16a34a 25%, transparent) var(--pct, 0%), transparent 0); }
 </style>
 </head>
 <body>
 <section class="plan" aria-labelledby="plan-title">
   <h2 id="plan-title"></h2>
+  <p class="sub" id="plan-sub"></p>
   <div id="rows"></div>
   <p class="foot" id="foot"></p>
 </section>
@@ -74,11 +79,16 @@ function field(label, value) {
 }
 
 document.getElementById('plan-title').textContent = data.title;
+document.getElementById('plan-sub').textContent = data.subtitle || '';
+if (data.live) {  // the board rewrites itself on every ledger change: reload to pick it up
+  setTimeout(() => location.reload(), 20000);
+}
 document.getElementById('foot').textContent = data.footer;
 const rows = document.getElementById('rows');
 rows.style.cssText = 'display:grid;gap:.35rem';
 for (const r of data.rows) {
-  const row = h('div', 'row');
+  const done = r.state && r.state !== 'open';
+  const row = h('div', 'row' + (done ? ' done' : ''));
   const main = h('div', 'main');
   if (r.pre) main.append(h('span', 'pre', r.pre));
   const item = h('span', 'chip');
@@ -97,6 +107,15 @@ for (const r of data.rows) {
   }
   if (r.then_sell != null) main.append(field('then sell @', r.then_sell));
   if (r.trait) main.append(h('span', 'trait', r.trait));
+  if (r.of && (r.filled || done)) {
+    const pct = Math.round((r.filled / r.of) * 100);
+    const label = done ? (r.state === 'done' ? `✓ completed ${fmt.format(r.filled)}/${fmt.format(r.of)}`
+                                              : `✕ closed at ${fmt.format(r.filled)}/${fmt.format(r.of)}`)
+                       : `${fmt.format(r.filled)}/${fmt.format(r.of)} filled`;
+    const p = h('span', 'progress-chip', label);
+    p.style.setProperty('--pct', `${pct}%`);
+    main.append(p);
+  }
   if (r.note) main.append(h('span', 'note', r.note));
   const n = h('span', 'n');
   n.append(h('span', 'slot', r.slot ? `Slot ${r.slot}` : '—'), h('span', 'num', `#${r.n}`));

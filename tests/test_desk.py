@@ -250,6 +250,15 @@ class FillTests(LedgerCase):
         row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
         self.assertEqual((row["verb"], row["then_sell"]), ("KEEP", o["target_sell"]))
 
+    def test_board_follows_every_ledger_change(self):
+        board = desk.LEDGER / desk.BOARD
+        self.assertTrue(board.exists(), "a plan writes the side-panel board")
+        n, o = self.num("Bones")
+        self.fill(n, to=7, no_sell=True)
+        html = board.read_text(encoding="utf-8")
+        self.assertIn('"filled": 7', html)
+        self.assertIn('"live": true', html)
+
     def test_slots_stable_and_inherited(self):
         s = desk.load_state()
         slots = [o["slot"] for o in desk.open_orders(s)]
