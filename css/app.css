@@ -1,0 +1,45 @@
+/* Tailwind's browser preflight loads after Basecoat and resets borders to currentColor. */
+.table :is(thead, tbody, tr, th, td) { border-color: var(--border); }
+.app-header { border-bottom: 1px solid var(--border); background: var(--background); position: sticky; top: 0; z-index: 10; }
+.app-header .progress { border-radius: 0; height: 3px; }
+
+.skip-link { position: absolute; left: -9999px; }
+.skip-link:focus { left: 1rem; top: .5rem; z-index: 50; background: var(--background); padding: .5rem .75rem; border: 1px solid var(--border); border-radius: .375rem; }
+
+.settings-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); align-items: start; }
+.settings-grid > label { align-content: start; }
+.hint { color: var(--muted-foreground); font-size: .75rem; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: .75rem; }
+.table-wrap .table { min-width: 72rem; }
+#flips-table { min-width: 52rem; }
+.table th, .table td { white-space: nowrap; vertical-align: middle; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pane-empty { padding: 1.5rem; text-align: center; color: var(--muted-foreground); font-size: .875rem; }
+
+.item-cell { display: flex; align-items: center; gap: .5rem; }
+.item-cell img { width: 28px; height: 28px; object-fit: contain; image-rendering: pixelated; flex: none; }
+.item-cell a { font-weight: 500; }
+.item-cell a:hover { text-decoration: underline; }
+.item-meta { display: block; font-size: .7rem; color: var(--muted-foreground); }
+
+.spark { display: block; width: 84px; height: 26px; }
+.spark polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.up { color: oklch(0.55 0.15 150); }
+.down { color: oklch(0.58 0.2 27); }
+
+.flags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .25rem; }
+.flags .badge { font-size: .65rem; padding-block: 0; }
+.conf { display: inline-flex; align-items: center; gap: .35rem; }
+.conf-dot { width: .55rem; height: .55rem; border-radius: 99px; background: currentColor; }
+
+.margin-out { display: grid; grid-template-columns: auto 1fr; gap: .25rem 1rem; font-size: .875rem; padding: .75rem; border: 1px solid var(--border); border-radius: .5rem; }
+.margin-out dt { color: var(--muted-foreground); }
+.margin-out dd { text-align: right; font-variant-numeric: tabular-nums; margin: 0; }
+.margin-out .big { font-weight: 600; font-size: 1rem; }
+#margin-dialog > div { max-width: 34rem; }
+
+.how summary { cursor: pointer; list-style: none; gap: .5rem; }
+.how p { line-height: 1.5; }
+
+:focus-visible { outline: 2px solid var(--ring, #2563eb); outline-offset: 2px; }
