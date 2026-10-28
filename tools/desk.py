@@ -564,6 +564,9 @@ def plan_rows(s, plan) -> list[dict]:
             row.update(verb="KEEP", qty=rem, price=o["price"], note=f"{o['side']} offer still in the GE, leave it")
             if o["side"] == "buy" and o.get("target_sell") and not o.get("process"):
                 row["then_sell"] = o["target_sell"]
+        if row.get("qty") is not None and row.get("price") is not None:
+            row["side"] = o["side"]
+            row["ge_total"] = rm.ge_screen_total(o["side"], row["qty"], row["price"], s["cfg"]["tax_rate"], o["name"])
         rows.append(row)
     return rows
 
@@ -676,7 +679,8 @@ def render_action(n, kind, o, note, items, s):
         pre = f"*{note.split(';')[0]}*, then " if note and note.startswith("first grind") else ""
         tail = note.split("; ", 1)[1] if note and note.startswith("first grind") and "; " in note else (
             None if note and note.startswith("first grind") else note)
-        return (f"{n}) {pre}**SELL** {o['name']} — **{gp(o['qty'])} @ {gp(o['price'])}** (GE total {gp(o['qty'] * o['price'])}){mkt} · "
+        ge = rm.ge_screen_total("sell", o["qty"], o["price"], s["cfg"]["tax_rate"], o["name"])
+        return (f"{n}) {pre}**SELL** {o['name']} — **{gp(o['qty'])} @ {gp(o['price'])}** (GE total {gp(ge)} after tax){mkt} · "
                 f"paid {gp(cost_each)} ea · est. {'+' if est >= 0 else ''}{gpc(est)} after tax"
                 + (f". *{tail}*" if tail else ""))
     then = (f" · **when bought, sell @ {gp(o['target_sell'])}**" if o["side"] == "buy" and o.get("target_sell")

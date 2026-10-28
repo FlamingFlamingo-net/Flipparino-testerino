@@ -112,6 +112,13 @@ class TaxTests(unittest.TestCase):
         self.assertEqual(rm.ge_tax(50, RATE), 1)
         self.assertEqual(rm.ge_tax(138_000_000, RATE, "Bond"), 0)
 
+    def test_ge_screen_total_matches_game(self):
+        # Seen in game: selling 6 x 3,679,973 shows 21,638,242 (tax on the whole total, floored)
+        self.assertEqual(rm.ge_screen_total("sell", 6, 3_679_973, RATE), 21_638_242)
+        self.assertEqual(rm.ge_screen_total("sell", 2, 3_679_973, RATE), 7_212_748)  # "received 7,212,748"
+        self.assertEqual(rm.ge_screen_total("buy", 6, 3_511_462, RATE), 21_068_772)
+        self.assertEqual(rm.ge_screen_total("sell", 1_000, 40, RATE), 40_000)  # under 50 gp: no tax
+
     def test_break_even_is_minimal(self):
         for buy in (51, 999, 4_537, 15_300, 764_716, 3_272_192):
             be = rm.break_even_sell(buy, RATE)

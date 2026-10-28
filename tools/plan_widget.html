@@ -87,7 +87,8 @@ for (const r of data.rows) {
   if (r.qty != null) main.append(field('qty', r.qty));
   if (r.price != null) main.append(field('@', r.price));
   if (r.qty != null && r.price != null && r.verb !== 'KEEP' && r.verb !== 'ABORT') {
-    main.append(h('span', 'check', `GE total should read ${fmt.format(r.qty * r.price)}`));
+    const total = r.ge_total ?? r.qty * r.price;
+    main.append(h('span', 'check', `GE total should read ${fmt.format(total)}` + (r.side === 'sell' ? ' (after 2% tax)' : '')));
   }
   if (r.grind) {
     const g = h('span', 'chip');

@@ -69,6 +69,16 @@ def ge_tax(sell: int, rate: float, name: str = "") -> int:
     return math.floor(sell * rate)
 
 
+def ge_screen_total(side: str, qty: int, price: int, rate: float, name: str = "") -> int:
+    """The coin total the GE offer screen shows before you confirm. Buy: qty x price.
+    Sell: what you'll RECEIVE, i.e. qty x price minus 2 % taken on the whole total, rounded down
+    (checked in game: 6 x 3,679,973 shows 21,638,242)."""
+    gross = qty * price
+    if side != "sell" or ge_tax(price, rate, name) == 0:
+        return gross
+    return gross - math.floor(gross * rate)
+
+
 def net_sell(sell, rate, name=""):
     return sell - ge_tax(sell, rate, name)
 
