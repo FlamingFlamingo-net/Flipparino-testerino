@@ -11,6 +11,7 @@ import argparse
 import contextlib
 import datetime as dt
 import io
+import json
 import math
 import shutil
 import sys
@@ -21,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 import desk  # noqa: E402
+import machines as mc  # noqa: E402
 import rsmarket as rm  # noqa: E402
 
 RATE = 0.02
@@ -45,13 +47,25 @@ def hourly(low, high, hours=168, vol=2_000):
              "lowPriceVolume": vol, "highPriceVolume": vol} for h in range(hours)]
 
 
+FAKE_FILL = {"items": [{"item": "Speedy whirligig shell", "qty": 8_000, "p10": 900, "median": 1_000,
+                        "buy_at": 20_001, "timing": None}], "filled": 8_000, "need": 8_400,
+             "worst_week": 7_200_000, "typical_week": 8_000_000, "cash": 160_008_000, "score": 4_000_000}
+FAKE_MACHINE_REPORT = {
+    "at": "2026-10-28T09:00", "dc_each": 68_000, "nature": 380, "missing_history": 0, "setups": {},
+    "machines": {"alch": {**mc.MACHINES["alch"], "per_week": 4_200, "items": [], "current": [],
+                          "fill": {1: FAKE_FILL, 2: FAKE_FILL}},
+                 "disasm": {**mc.MACHINES["disasm"], "per_week": 10_080, "items": [], "current": [],
+                            "fill": {1: {**FAKE_FILL, "items": []}}}},
+}
+
+
 class LedgerCase(unittest.TestCase):
     """Points desk.py at a temp ledger and fakes the price APIs."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self._saved = (desk.LEDGER, desk.STATE, rm.load_market, rm.load_series, rm.load_series30,
-                       rm.get_json, desk._item_ids)
+                       rm.get_json, desk._item_ids, mc.analyse, desk.now)
         desk.LEDGER = self.tmp / "ledger"
         desk.STATE = desk.LEDGER / "state.json"
         self.mk = market(
@@ -66,10 +80,18 @@ class LedgerCase(unittest.TestCase):
         rm.load_series = lambda ids, workers=6: {i: series.get(i) for i in ids}
         rm.load_series30 = lambda ids, workers=6: {i: None for i in ids}
         desk._item_ids = lambda: {it["name"]: i for i, it in self.mk["items"].items()}
+        # machines: no network; a fixed weekly shopping list (Speedy whirligig shell stands in for an input)
+        mc.analyse = lambda *a, **k: FAKE_MACHINE_REPORT
+        self._sched = mc.DEFAULT_SCHEDULE  # no machines in the generic ledger tests
+        mc.DEFAULT_SCHEDULE = {**self._sched, "setup": {}}
+        # default clock: a Wednesday morning, outside the machine buy window
+        self.clock = dt.datetime(2026, 10, 28, 9, 0).astimezone()
+        desk.now = lambda: self.clock
 
     def tearDown(self):
         (desk.LEDGER, desk.STATE, rm.load_market, rm.load_series, rm.load_series30,
-         rm.get_json, desk._item_ids) = self._saved
+         rm.get_json, desk._item_ids, mc.analyse, desk.now) = self._saved
+        mc.DEFAULT_SCHEDULE = self._sched
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_cmd(self, fn, **kw) -> str:
@@ -327,3 +349,128 @@ class BlockAndRecordTests(LedgerCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------- invention machines ----------------
+class MachineScheduleTests(unittest.TestCase):
+    def test_one_item_per_machine_type(self):
+        rows = [{"item": "A", "per_week_max": 3_000, "p10": 1_500, "median": 1_600, "buy_at": 7_000, "adj": 1_360, "timing": None},
+                {"item": "B", "per_week_max": 40_000, "p10": 1_200, "median": 1_400, "buy_at": 7_000, "adj": 1_060, "timing": None}]
+        f = mc.fill_plan(rows, 8_400, 1)
+        self.assertEqual([(p["item"], p["qty"]) for p in f["items"]], [("B", 8_400)])  # fills the machine beats 3,000 of A
+
+    def test_next_refill_is_tuesday_18(self):
+        sch = mc.DEFAULT_SCHEDULE
+        wed = dt.datetime(2026, 10, 28, 9, 0).astimezone()
+        self.assertEqual(mc.next_refill(wed, sch).strftime("%a %d %H:%M"), "Tue 03 18:00")
+        tue_late = dt.datetime(2026, 11, 3, 18, 30).astimezone()  # just after a refill: next week's
+        self.assertEqual(mc.next_refill(tue_late, sch).strftime("%a %d %H:%M"), "Tue 10 18:00")
+
+    def test_buy_window_is_the_days_before_refill(self):
+        self.assertEqual(mc.DEFAULT_SCHEDULE["buy_days"], 7)  # default: reset to reset, buy all week
+        sch = {**mc.DEFAULT_SCHEDULE, "buy_days": 3.5}  # a shorter window still works: from Saturday 06:00
+        self.assertFalse(mc.in_buy_window(dt.datetime(2026, 10, 31, 5, 0).astimezone(), sch))
+        self.assertTrue(mc.in_buy_window(dt.datetime(2026, 10, 31, 7, 0).astimezone(), sch))
+        self.assertTrue(mc.in_buy_window(dt.datetime(2026, 11, 3, 17, 0).astimezone(), sch))
+
+    def test_volume_cap_uses_a_slow_day(self):
+        # 90 days: most days 10,000 sellers, but a quarter of days only 2,000 -> plan around the slow days
+        day = 86_400
+        pts = [(i * day, 100, 110, 2_000 if i % 4 == 0 else 10_000, 500) for i in range(90)]
+        it = {"limit": 100_000}
+        share = 1 / (1 + mc.COMPETITORS)  # we + the other buyers after the same item
+        self.assertEqual(mc.obtainable(it, pts, None, 1), int(mc.pctl([p[3] for p in pts], 0.25) * 7 * share))
+        self.assertLess(mc.obtainable(it, pts, None, 1), 10_000 * 7 * share)  # less than a fair share of a normal week
+        it["limit"] = 1
+        self.assertEqual(mc.obtainable(it, pts, None, 1), mc.BUY_WINDOWS)  # buy limit binds
+        # machines that make things: we must also be able to SELL our share of the output
+        self.assertEqual(mc.obtainable({"limit": 100_000}, pts, [(p[0], 1, 1, 0, 50) for p in pts], 1),
+                         int(50 * 7 * share))
+
+    def test_fill_plan_prefers_consistency_and_skips_crumbs(self):
+        rows = [{"item": "A", "per_week_max": 3_050, "p10": 1_500, "median": 1_600, "buy_at": 7_000, "adj": 1_360, "timing": None},
+                {"item": "B", "per_week_max": 40_000, "p10": 1_200, "median": 1_400, "buy_at": 7_000, "adj": 1_060, "timing": None}]
+        f = mc.fill_plan(rows, 4_200, 3)
+        self.assertEqual([(p["item"], p["qty"]) for p in f["items"]], [("A", 3_000), ("B", 1_200)])
+        rows[0]["per_week_max"] = 4_000  # B would only add 200 x 1,200 = 240k a week: not worth a slot
+        f = mc.fill_plan(rows, 4_200, 3)
+        self.assertEqual([p["item"] for p in f["items"]], ["A"])
+
+
+class MachineDeskTests(LedgerCase):
+    def setUp(self):
+        super().setUp()
+        mc.DEFAULT_SCHEDULE = {**self._sched, "buy_days": 3.5}  # these tests check the window edge too
+        self.clock = dt.datetime(2026, 10, 31, 8, 0).astimezone()  # Saturday morning: buy window open
+
+    def test_outside_window_no_machine_buys(self):
+        self.clock = dt.datetime(2026, 10, 28, 9, 0).astimezone()
+        self.plan()
+        s = desk.load_state()
+        self.assertFalse([o for o in s["orders"] if o.get("strategy") == "machine"])
+
+    def test_machine_buy_planned_first_and_paid_from_machine_pot(self):
+        out = self.plan()
+        self.assertIn("⚙ for the Alchemiser mk. II", out)
+        s = desk.load_state()
+        mo = [o for o in s["orders"] if o.get("strategy") == "machine"]
+        self.assertEqual(len(mo), 1)
+        o = mo[0]
+        self.assertEqual(o["qty"], 5_000)  # 8,000 on this week's list, capped by the 5,000 buy limit
+        self.assertEqual(o["price"], 20_001)
+        cash = s["cash"]
+        self.assertEqual(desk.reserved_cash(s), sum(desk.remaining(x) * x["price"] for x in s["orders"]
+                                                    if x["status"] == "open" and x["side"] == "buy"
+                                                    and x.get("strategy") != "machine"))
+        n = next(k for k, v in s["plans"][-1]["map"].items() if v == o["id"])
+        self.fill(int(n))
+        s = desk.load_state()
+        self.assertEqual(s["cash"], cash, "machine inputs don't touch flipping cash")
+        self.assertNotIn(str(o["item_id"]), {k for k, h in s["holdings"].items() if h["qty"] > 0})
+        self.assertFalse([x for x in s["orders"] if x["side"] == "sell" and x["name"] == o["name"]], "no auto-sell")
+        w = s["machines"]["week"]
+        self.assertEqual((w["bought"]["Speedy whirligig shell"], w["spent"]), (5_000, 5_000 * 20_001))
+        # 4 h later: the limit has reset, the rest of the week's list is planned
+        self.clock += dt.timedelta(hours=4, minutes=5)
+        self.plan()
+        s = desk.load_state()
+        nxt = [x for x in s["orders"] if x.get("strategy") == "machine" and x["status"] == "open"]
+        self.assertEqual([x["qty"] for x in nxt], [3_000])
+        self.assertEqual(desk.machine_left(s, s["machines"]["week"], "Speedy whirligig shell"), 3_000)
+
+    def test_pick_the_weeks_item(self):
+        self.plan()  # builds this week's list
+        (desk.LEDGER / "machines.json").write_text(json.dumps({"machines": {"alch": {
+            **FAKE_MACHINE_REPORT["machines"]["alch"],
+            "items": [{"item": "Bones", "per_week_max": 6_050, "buy_at": 1_001, "p10": 50, "timing": None}]}}}),
+            encoding="utf-8")
+        self.run_cmd(desk.cmd_machines, refresh=False, setup=None, pick=["alch=Bones"], loaded=None, bank=None)
+        w = desk.load_state()["machines"]["week"]
+        self.assertEqual([(x["item"], x["qty"]) for x in w["targets"] if x["kind"] == "alch"], [("Bones", 6_000)])
+
+    def test_keep_machines_capped(self):
+        # Saturday 08:00. Both alchemisers (cap 2 x 5,000) were filled at last Tuesday's reset and eat 50/h;
+        # 5,200 more sit in the bank. Next refill Tuesday 18:00 is 82 h away.
+        self.plan()
+        out = self.run_cmd(desk.cmd_machines, refresh=False, setup=None, pick=None,
+                           loaded=['alch="Speedy whirligig shell=10000@2026-10-27T18:00"'],
+                           bank=['alch="Speedy whirligig shell=5200"'])
+        s = desk.load_state()
+        w = s["machines"]["week"]
+        p = desk.project_loaded(s, w)["alch"]
+        self.assertEqual((p["qty"], p["at_refill"], p["idle_h"]), (10_000 - 50 * 86, 1_600, 0))  # Tue 18:00 -> Sat 08:00 = 86 h
+        # top back up to 10,000 at the refill: 10,000 - 1,600 inside - 5,200 in the bank = 3,200 to buy
+        self.assertEqual(desk.machine_left(s, w, "Speedy whirligig shell"), 3_200)
+        self.assertIn("topping up to the 10,000 cap takes 8,400", out)
+        # after the next refill they're assumed capped again, a fresh week
+        self.clock = dt.datetime(2026, 11, 4, 9, 0).astimezone()
+        s = desk.load_state()
+        w = desk.machine_week(s, self.clock)
+        self.assertEqual(desk.project_loaded(s, w)["alch"]["qty"], 10_000 - 50 * 15)
+
+    def test_machine_items_not_flipped(self):
+        self.plan()
+        s = desk.load_state()
+        flips = [o for o in s["orders"] if o["name"] == "Speedy whirligig shell" and o.get("strategy") != "machine"]
+        self.assertFalse(flips)
+

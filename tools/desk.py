@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rsmarket as rm  # noqa: E402
+import machines as mc  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LEDGER = ROOT / "ledger"
@@ -111,7 +112,83 @@ def open_orders(s):
 
 
 def reserved_cash(s):
-    return sum(remaining(o) * o["price"] for o in open_orders(s) if o["side"] == "buy")
+    """Cash tied in flipping buy offers. Machine inputs are paid from the separate machine pot."""
+    return sum(remaining(o) * o["price"] for o in open_orders(s) if o["side"] == "buy" and o.get("strategy") != "machine")
+
+
+# ---------------- invention machines ----------------
+def machine_state(s) -> dict:
+    m = s.setdefault("machines", {})
+    for k, v in mc.DEFAULT_SCHEDULE.items():
+        m.setdefault(k, json.loads(json.dumps(v)))
+    return m
+
+
+def machine_week(s, t, force=False) -> dict:
+    """This week's shopping list (computed once per week, the first time it's needed)."""
+    m = machine_state(s)
+    refill = mc.next_refill(t, m).isoformat()
+    w = m.get("week")
+    if force or not w or w["refill"] != refill:
+        rep = mc.analyse()
+        (LEDGER / "machines.json").write_text(json.dumps(rep, indent=1), encoding="utf-8")
+        w = {"refill": refill, "made": t.isoformat(), "targets": mc.shopping_list(rep, m["setup"]),
+             "bought": {}, "spent": 0, "report": mc.render(rep)}
+        m["week"] = w
+    return w
+
+
+def machine_cap(s, kind) -> int:
+    return mc.MACHINES[kind]["cap"] * machine_state(s)["setup"].get(kind, 1)
+
+
+def machine_left(s, w, name) -> int:
+    """Still to buy so the next Tuesday load fills the machines to the brim (the user keeps them
+    capped so a late restock never leaves them idle). Need = capacity - what will still be inside at
+    the refill - what's already in the bank for them - what we've bought this week. Whole hundreds."""
+    x = next((x for x in w["targets"] if x["item"] == name), None)
+    if not x:
+        return 0
+    kind = x["kind"]
+    inside = project_loaded(s, w).get(kind)
+    if inside is None:  # nothing recorded: plan the week's usage
+        need = x["qty"]
+    else:
+        need = machine_cap(s, kind) - inside["at_refill"]
+    need -= sum(w.get("bank", {}).get(kind, {}).values()) + w["bought"].get(name, 0)
+    need = max(0, need)
+    return need // 100 * 100 if need >= 100 else need
+
+
+def project_loaded(s, w) -> dict:
+    """{kind: {item, qty, runs_out, at_refill, idle_h}} for what's inside the machines.
+    After each Tuesday refill the machines are assumed topped up to capacity again."""
+    m = machine_state(s)
+    refill = dt.datetime.fromisoformat(w["refill"])
+    last_refill = refill - dt.timedelta(days=7)
+    out = {}
+    for kind, x in m.get("loaded", {}).items():
+        rate = mc.MACHINES[kind]["per_h"] * m["setup"].get(kind, 1)  # inputs used per hour, all copies
+        at, qty, item = dt.datetime.fromisoformat(x["at"]), x["qty"], x["item"]
+        if at < last_refill <= now():  # a refill happened since: the user capped them again
+            at, qty = last_refill, machine_cap(s, kind)
+            item = next((y["item"] for y in w["targets"] if y["kind"] == kind), item)
+        left_now = max(0, qty - rate * max(0, (now() - at).total_seconds() / 3600))
+        runs_out = now() + dt.timedelta(hours=left_now / rate)
+        to_refill = (refill - now()).total_seconds() / 3600
+        out[kind] = {"item": item, "qty": round(left_now), "runs_out": runs_out.isoformat(),
+                     "at_refill": round(max(0, left_now - rate * to_refill)),
+                     "idle_h": round(max(0, to_refill - left_now / rate), 1),
+                     "idle_units": round(max(0, to_refill - left_now / rate) * rate)}
+    return out
+
+
+def machine_note(s, w) -> str:
+    refill = dt.datetime.fromisoformat(w["refill"])
+    parts = [f"{x['item']} bought {gp(w['bought'].get(x['item'], 0))}, still to buy {gp(machine_left(s, w, x['item']))}"
+             for x in w["targets"]]
+    return f"Machines (refill {refill:%a %d %b %H:%M}): " + (", ".join(parts) or "nothing to buy") + \
+        f" · spent {gpc(w['spent'])} from the machine pot"
 
 
 def order_by_number(s, n: int) -> dict:
@@ -327,6 +404,13 @@ def cmd_plan(args):
         if not it or not stale or o.get("pinned"):
             actions.append(("keep", o, None))
             continue
+        if o.get("strategy") == "machine":  # machine inputs: just keep the bid at the market's sell side
+            bid = math.ceil(mc.robust_low(it)) + 1
+            if abs(bid - o["price"]) / o["price"] > 0.005:
+                actions.append(("reprice", o, (bid, None, "machine input: follow the market", None)))
+            else:
+                actions.append(("keep", o, None))
+            continue
         if o["side"] == "buy":
             budget = remaining(o) * o["price"] * 1.3
             x = best_for(it, budget, o.get("strategy")) or best_for(it, budget)
@@ -399,6 +483,28 @@ def cmd_plan(args):
         note = "; ".join(x for x in (note, why) if x) or None
         actions.append(("new", new_order(s, "sell", it, qty, price, hold.get("strategy", "spread")), note))
         slots_used += 1
+
+    # 3a) invention machines: in the days before the weekly refill, their inputs get slots first
+    week = None
+    if machine_state(s).get("setup") and mc.in_buy_window(t, machine_state(s)):
+        week = machine_week(s, t)
+        for x in week["targets"]:
+            if slots_used >= SLOTS:
+                break
+            it = mk["by_name"].get(x["item"])
+            if not it or any(o["item_id"] == it["id"] and live(o) for o in open_o):
+                continue
+            left = machine_left(s, week, x["item"])
+            lim_left, _wait, _clock = limit_state(s, it)
+            qty = int(min(left, lim_left))
+            qty = qty // 100 * 100 if qty >= 100 else qty
+            if qty <= 0:
+                continue
+            o = new_order(s, "buy", it, qty, math.ceil(mc.robust_low(it)) + 1, "machine")
+            o.update(machine=x["machine"], refill=week["refill"], timing=x.get("timing"))
+            actions.append(("new", o, None))
+            slots_used += 1
+        used_items |= {mk["by_name"][x["item"]]["id"] for x in week["targets"] if x["item"] in mk["by_name"]}
 
     # 3) free slots -> new buys
     available += sum(remaining(a[1]) * a[1]["price"] for a in actions if a[0] == "abort" and a[1]["side"] == "buy")
@@ -552,7 +658,9 @@ def plan_rows(s, plan) -> list[dict]:
                 row["then_sell"] = log.get("then_sell") or o.get("target_sell")
         elif o.get("plan") == plan["id"]:
             row.update(verb=o["side"].upper(), qty=o["qty"], price=o["price"])
-            if o["side"] == "buy":
+            if o["side"] == "buy" and o.get("strategy") == "machine":
+                row["trait"] = f"⚙ {o['machine']}"
+            elif o["side"] == "buy":
                 row["then_sell"] = o.get("target_sell")
                 row["trait"] = trait(o)
                 if o.get("process"):
@@ -652,6 +760,8 @@ def assign_slots(s, actions):
 
 def trait(o) -> str:
     """Speed label shown on every buy: ⚡ fast (≤ 8 h in a slot), 🕒 slow, 🧳 away (multi-day)."""
+    if o.get("strategy") == "machine":
+        return f"⚙ {o.get('machine', 'machine')}"
     if o.get("strategy") == "away":
         return f"🧳 away {o.get('hold_days', 3):g}d"
     if o.get("strategy") == "dip":
@@ -695,6 +805,11 @@ def render_action(n, kind, o, note, items, s):
         flags = f" · ⚑ {', '.join(o['flags'])}" if o.get("flags") else ""
         flags += f" · {o['record']}" if o.get("record") else ""
         head = f"{n}) **BUY** {star}{o['name']} — **{gp(o['qty'])} @ {gp(o['price'])}** (GE total {gp(o['qty'] * o['price'])}){mkt}"
+        if o["strategy"] == "machine":
+            refill = dt.datetime.fromisoformat(o["refill"])
+            tm = o.get("timing")
+            tip = f" · usually cheapest {(tm['day'] + ' ' + tm['hours']).strip()}" if tm else ""
+            return f"{head} · ⚙ for the {o['machine']}, goes in {refill:%a %H:%M}{tip}"
         if o["strategy"] == "process":
             p = o["process"]
             return (f"{head} → grind into **{gp(o['qty'] // p['ratio'])} {p['into']}** → sell @ {gp(o['target_sell'])}"
@@ -736,6 +851,8 @@ def render_plan(s, t, mk, lines, dry, failed=0):
         "",
         f"Cash {gpc(s['cash'])} (tied in buy offers {gpc(reserved_cash(s))}) · items held at cost {gpc(held_cost)} · "
         f"realised P/L {'+' if real >= 0 else ''}{gpc(real)} · capital cap {gpc(s['capital'])}",
+        *([machine_note(s, s["machines"]["week"])] if s.get("machines", {}).get("week")
+          and mc.in_buy_window(t, s["machines"]) else []),
         *([f"_Note: price history unavailable for {failed} items this run; they were skipped._"] if failed else []),
         "",
         "_Reply with feedback per number, e.g. “1 done, 2 bought 3,000 @ 2,065, 3 never placed, "
@@ -757,6 +874,15 @@ def apply_fill(s, o, q, price):
             # anchor on the fill's own timestamp so this fill counts inside its window
             lr[key] = (dt.datetime.fromisoformat(t) + dt.timedelta(hours=4)).isoformat()
             s.get("limit_used", {}).pop(key, None)
+        if o.get("strategy") == "machine":  # goes into the machine on refill day; paid from the machine pot
+            w = s.get("machines", {}).get("week")
+            if w and w["refill"] == o.get("refill"):
+                w["bought"][o["name"]] = w["bought"].get(o["name"], 0) + q
+                w["spent"] += q * price
+            if remaining(o) <= 0:
+                o["status"] = "done"
+                o["closed"] = t
+            return
         s["cash"] -= q * price
         h = s["holdings"].setdefault(key, {"name": o["name"], "qty": 0, "cost": 0})
         if h["qty"] <= 0:
@@ -932,6 +1058,61 @@ def cmd_deposit(a):
     print(f"{'Added' if a.amount >= 0 else 'Withdrew'} {gp(abs(a.amount))} · cash {gp(s['cash'])} · capital {gp(s['capital'])}")
 
 
+def cmd_machines(a):
+    """Weekly machine report + this week's shopping list. --setup alch=2,disasm=1 changes what's built."""
+    s = load_state()
+    m = machine_state(s)
+    if a.setup:
+        m["setup"] = {k: int(v) for k, v in (p.split("=") for p in a.setup.split(","))}
+        a.refresh = True
+    w = machine_week(s, now(), force=a.refresh)
+    for spec in a.loaded or []:  # inside the machines: --loaded alch="Water battlestaff=10000@2026-10-27T18:00"
+        kind, rest = spec.split("=", 1)
+        rest, _, when = rest.strip('"').partition("@")
+        name, q = rest.rsplit("=", 1)
+        at = dt.datetime.fromisoformat(when).astimezone() if when else now()
+        m.setdefault("loaded", {})[kind] = {"item": name, "qty": gp_arg(q), "at": at.isoformat()}
+    for spec in a.bank or []:  # held in the bank for the next load: --bank disasm="Yak-hide=1626"
+        kind, rest = spec.split("=", 1)
+        name, q = rest.strip('"').rsplit("=", 1)
+        w.setdefault("bank", {}).setdefault(kind, {})[name] = gp_arg(q)
+    for pick in a.pick or []:  # the user decides the week's item: --pick alch="Water battlestaff"
+        kind, name = pick.split("=", 1)
+        rep = json.loads((LEDGER / "machines.json").read_text(encoding="utf-8"))
+        d = rep["machines"][kind]
+        row = next((x for x in d["items"] + d.get("current", []) if x["item"].lower() == name.strip('"').lower()), None)
+        if not row:
+            sys.exit(f"{name} isn't an analysed input for {kind}; options: {', '.join(x['item'] for x in d['items'])}")
+        k = m["setup"].get(kind, 1)
+        qty = min(d["per_week"] * k, row["per_week_max"])
+        qty = qty // 100 * 100 if qty >= 100 else qty
+        w["targets"] = [x for x in w["targets"] if x["kind"] != kind] + [{
+            "machine": mc.MACHINES[kind]["name"], "kind": kind, "item": row["item"], "qty": qty,
+            "buy_at": row["buy_at"], "timing": row.get("timing"), "p10": row["p10"], "picked": True}]
+    save_state(s)
+    print(w["report"])
+    refill = dt.datetime.fromisoformat(w["refill"])
+    print(f"\n## Shopping list for {refill:%A %d %b %H:%M} (machines: "
+          + ", ".join(f"{k}× {mc.MACHINES[x]['name']}" for x, k in m["setup"].items() if k) + ")")
+    for x in w["targets"]:
+        tm = x.get("timing")
+        print(f"- {x['qty']:,} {x['item']} for the {x['machine']} @ about {x['buy_at']:,}"
+              + (f" · usually cheapest {(tm['day'] + ' ' + tm['hours']).strip()}" if tm else "")
+              + f" · bought {w['bought'].get(x['item'], 0):,} · **still to buy {machine_left(s, w, x['item']):,}**")
+    for kind, items in w.get("bank", {}).items():
+        print(f"- In the bank for the {mc.MACHINES[kind]['name']}: " + ", ".join(f"{q:,} {n}" for n, q in items.items()))
+    for kind, p in project_loaded(s, w).items():
+        name = mc.MACHINES[kind]["name"]
+        print(f"- Inside the {name}(s): {p['qty']:,} {p['item']}, empty by "
+              f"{dt.datetime.fromisoformat(p['runs_out']):%a %d %b %H:%M}"
+              + (f" → idle {p['idle_h']:.0f}h before the refill" if p["idle_h"] > 0
+                 else f"; {p['at_refill']:,} still inside at the refill, so topping up to the "
+                      f"{machine_cap(s, kind):,} cap takes {machine_cap(s, kind) - p['at_refill']:,}"))
+    start = refill - dt.timedelta(days=m["buy_days"])
+    print(f"\nPlans add these buys automatically from {start:%a %d %b %H:%M}. Cost so far {gpc(w['spent'])} "
+          "(machine pot, separate from flipping cash).")
+
+
 def cmd_block(a):
     s = load_state()
     bl = s["cfg"].setdefault("blacklist", [])
@@ -1070,6 +1251,12 @@ def main():
     p.add_argument("cost_each", type=gp_arg); p.set_defaults(fn=cmd_holding)
     sub.add_parser("widget").set_defaults(fn=cmd_widget)
     sub.add_parser("totals").set_defaults(fn=cmd_totals)
+    p = sub.add_parser("machines"); p.add_argument("--refresh", action="store_true"); p.add_argument("--setup")
+    p.add_argument("--loaded", action="append",
+                   help='inside the machines, e.g. --loaded alch="Water battlestaff=10000@2026-10-27T18:00"')
+    p.add_argument("--bank", action="append", help='in the bank for the next load, e.g. --bank disasm="Yak-hide=1626"')
+    p.add_argument("--pick", action="append", help='choose the week\'s item, e.g. --pick alch="Water battlestaff"')
+    p.set_defaults(fn=cmd_machines)
     p = sub.add_parser("deposit"); p.add_argument("amount", type=gp_arg); p.add_argument("--note")
     p.set_defaults(fn=cmd_deposit)
     p = sub.add_parser("limit"); p.add_argument("name"); p.add_argument("--resets", required=True)
