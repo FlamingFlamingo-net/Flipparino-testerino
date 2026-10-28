@@ -1,55 +1,107 @@
 <!doctype html>
-<!-- RS3 trade desk plan widget. desk.py replaces the DATA placeholder; rendered in the Hermes chat. -->
+<!-- RS3 trade desk plan panel. desk.py replaces the DATA placeholder. Used in the chat (::preview)
+     and as the live side-panel board (ledger/latest.html). Theme vars come from Hermes when present;
+     the fallbacks make it readable in the plain preview pane too. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Trade plan</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GE plan</title>
 <style>
-  .plan { display: grid; gap: .35rem; font-size: 13px; max-width: 760px; }
-  .plan h2 { font-size: 14px; margin: 0 0 .25rem; }
-  .row { display: grid; grid-template-columns: 3.6rem 4.4rem minmax(0, 1fr); gap: .5rem; align-items: start;
-         padding: .45rem .5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
-  .n { display: grid; gap: 1px; padding-top: 1px; }
-  .n .slot { font-weight: 700; font-size: 12px; white-space: nowrap; }
-  .n .num { font-size: 11px; color: var(--muted-foreground); }
-  .verb { font-size: 11px; font-weight: 700; letter-spacing: .03em; padding: 2px 6px; border-radius: 5px;
-          border: 1px solid var(--border); text-align: center; }
-  .v-BUY { color: #16a34a; } .v-SELL { color: #2563eb; } .v-ABORT { color: #dc2626; }
-  .v-CHANGE { color: #d97706; } .v-KEEP { color: var(--muted-foreground); }
-  .main { display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; }
-  .chip { display: inline-flex; align-items: center; gap: .3rem; }
-  .label { color: var(--muted-foreground); font-size: 11px; }
-  .val { font-weight: 600; font-variant-numeric: tabular-nums; }
-  .item { font-weight: 600; }
-  .val.big { font-size: 15px; letter-spacing: .02em; }
-  .trait { font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 99px; }
-  .check { flex-basis: 100%; font-size: 12px; color: var(--muted-foreground); }
-  .pre { flex-basis: 100%; font-style: italic; color: var(--muted-foreground); }
-  .note { flex-basis: 100%; color: var(--muted-foreground); font-size: 12px; }
-  button.copy { font: inherit; font-size: 11px; line-height: 1; cursor: pointer; color: var(--foreground);
-                background: transparent; border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; }
-  button.copy:hover { border-color: var(--accent); }
-  button.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  button.copy.ok { color: #16a34a; border-color: #16a34a; }
-  .foot { color: var(--muted-foreground); font-size: 12px; margin-top: .25rem; }
-  .sub { margin: -.2rem 0 .3rem; color: var(--muted-foreground); font-size: 12px; }
-  .row.done { opacity: .5; }
-  .progress-chip { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--border);
-    background: linear-gradient(90deg, color-mix(in oklab, #16a34a 25%, transparent) var(--pct, 0%), transparent 0); }
+  :root {
+    --fg: var(--foreground, #1c2024);
+    --muted: var(--muted-foreground, #6b7280);
+    --line: var(--border, #e3e6ea);
+    --surface: var(--card, #ffffff);
+    --page: #f5f6f8;
+    --buy: #15803d; --sell: #1d4ed8; --change: #b45309; --abort: #b91c1c; --keep: #6b7280;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: var(--foreground, #e7e9ec); --muted: var(--muted-foreground, #9aa3ad);
+      --line: var(--border, #2c3138); --surface: var(--card, #1b1f24); --page: #121417;
+      --buy: #4ade80; --sell: #7aa2ff; --change: #fbbf24; --abort: #f87171; --keep: #9aa3ad;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--fg);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body.standalone { background: var(--page); padding: 14px; }
+  .plan { display: grid; gap: 10px; max-width: 640px; }
+
+  header h2 { margin: 0; font-size: 16px; font-weight: 650; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .stat { font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 99px;
+          background: var(--surface); color: var(--muted); }
+  .stat b { color: var(--fg); font-weight: 600; }
+  .stat.up b { color: var(--buy); }
+
+  .slot { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+          border-left: 4px solid var(--accent-c, var(--keep)); overflow: hidden; }
+  .slot-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; }
+  .slot-no { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .pill { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 1px 8px; border-radius: 99px;
+          color: var(--accent-c); background: color-mix(in oklab, var(--accent-c) 14%, transparent); }
+  .idx { margin-left: auto; font-size: 11px; color: var(--muted); }
+
+  .entry { padding: 6px 12px 10px; }
+  .history { padding: 6px 12px 0; display: grid; gap: 2px; }
+  .past { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
+  .past .mark { font-weight: 700; }
+
+  .name { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; }
+  .name strong { font-size: 15px; font-weight: 650; }
+  .star { color: #d4a017; }
+
+  .nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+  .num .k { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
+            text-transform: uppercase; color: var(--muted); }
+  .num .v { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .num.sellto .v { color: var(--sell); }
+
+  .total { margin-top: 8px; padding: 6px 8px; border-radius: 6px; font-size: 12.5px;
+           background: color-mix(in oklab, var(--fg) 5%, transparent); }
+  .total b { font-variant-numeric: tabular-nums; font-weight: 650; }
+  .total span { color: var(--muted); }
+
+  .bar { margin-top: 8px; height: 6px; border-radius: 99px; background: color-mix(in oklab, var(--fg) 8%, transparent); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent-c); }
+  .bar-label { font-size: 11.5px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .tag { font-size: 11.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .note { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+  .pre { margin-bottom: 6px; font-size: 12.5px; font-weight: 600; color: var(--change); }
+
+  button.copy { font: inherit; font-size: 11px; line-height: 1; cursor: pointer; color: var(--muted);
+                background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; }
+  button.copy:hover { color: var(--fg); border-color: var(--muted); }
+  button.copy:focus-visible { outline: 2px solid var(--sell); outline-offset: 1px; }
+  button.copy.ok { color: var(--buy); border-color: var(--buy); }
+
+  .slot.idle .entry { opacity: .55; }
+  .foot { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
 </style>
 </head>
 <body>
 <section class="plan" aria-labelledby="plan-title">
-  <h2 id="plan-title"></h2>
-  <p class="sub" id="plan-sub"></p>
-  <div id="rows"></div>
+  <header>
+    <h2 id="plan-title"></h2>
+    <div class="stats" id="stats"></div>
+  </header>
+  <div id="slots" style="display:grid;gap:10px"></div>
   <p class="foot" id="foot"></p>
 </section>
 <script type="application/json" id="data">/*DATA*/null</script>
 <script type="module">
 const data = JSON.parse(document.getElementById('data').textContent);
 const fmt = new Intl.NumberFormat('en-US');
+const COLOR = { BUY: 'var(--buy)', SELL: 'var(--sell)', CHANGE: 'var(--change)', ABORT: 'var(--abort)', KEEP: 'var(--keep)' };
 const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+// Standalone (preview pane) gets its own page background; inside the chat frame Hermes themes it.
+if (!getComputedStyle(document.documentElement).getPropertyValue('--foreground').trim()) document.body.classList.add('standalone');
 
 async function copy(text, btn) {
   try { await navigator.clipboard.writeText(text); }
@@ -62,66 +114,98 @@ async function copy(text, btn) {
   btn.textContent = 'Copied'; btn.classList.add('ok');
   setTimeout(() => { btn.textContent = old; btn.classList.remove('ok'); }, 1200);
 }
-function copyBtn(text, what) {
-  const b = h('button', 'copy', 'Copy');
+function copyBtn(text) {
+  const b = h('button', 'copy', 'Copy name');
   b.type = 'button';
-  b.setAttribute('aria-label', `Copy ${what}`);
+  b.setAttribute('aria-label', `Copy item name ${text}`);
   b.addEventListener('click', () => copy(String(text), b));
   return b;
 }
-// The GE won't accept pasted numbers, so numbers are shown big and grouped for typing,
-// with the total the GE screen should show as a typo check.
-function field(label, value) {
-  const c = h('span', 'chip');
-  if (label) c.append(h('span', 'label', label));
-  c.append(h('span', 'val big', fmt.format(value)));
-  return c;
+const num = (k, v, cls = '') => { const d = h('div', `num ${cls}`); d.append(h('span', 'k', k), h('span', 'v', fmt.format(v))); return d; };
+
+function entry(r) {
+  const e = h('div', 'entry');
+  if (r.pre) e.append(h('div', 'pre', r.pre));
+  const name = h('div', 'name');
+  const strong = h('strong', null, r.item);
+  if (r.star) name.append(h('span', 'star', '★'));
+  name.append(strong, copyBtn(r.item));
+  e.append(name);
+
+  const nums = h('div', 'nums');
+  if (r.qty != null) nums.append(num('Quantity', r.qty));
+  if (r.price != null) nums.append(num(r.side === 'sell' ? 'Sell at' : r.verb === 'CHANGE' ? 'New price' : 'Price', r.price));
+  if (r.then_sell != null) nums.append(num('Then sell at', r.then_sell, 'sellto'));
+  e.append(nums);
+
+  if (r.grind) {
+    const g = h('div', 'pre', `→ grind into ${fmt.format(r.grind.n)} ${r.grind.into} `);
+    g.append(copyBtn(r.grind.into));
+    e.append(g);
+  }
+  if (r.qty != null && r.price != null && (r.verb === 'BUY' || r.verb === 'SELL' || r.verb === 'CHANGE')) {
+    const t = h('div', 'total');
+    t.append(h('span', null, 'GE total should read '), h('b', null, fmt.format(r.ge_total ?? r.qty * r.price)));
+    if (r.side === 'sell') t.append(h('span', null, ' (after 2% tax)'));
+    e.append(t);
+  }
+  if (r.of && r.filled > 0 && r.state === 'open') {
+    const bar = h('div', 'bar'); const fill = h('i');
+    fill.style.width = `${Math.round((r.filled / r.of) * 100)}%`;
+    bar.append(fill);
+    e.append(bar, h('div', 'bar-label', `${fmt.format(r.filled)} of ${fmt.format(r.of)} filled`));
+  }
+  const tags = [r.trait, ...(r.note ? [] : [])].filter(Boolean);
+  if (tags.length) { const t = h('div', 'tags'); tags.forEach((x) => t.append(h('span', 'tag', x))); e.append(t); }
+  if (r.note) e.append(h('div', 'note', r.note));
+  return e;
 }
 
+function past(r) {
+  const p = h('div', 'past');
+  const done = r.state === 'done';
+  p.append(h('span', 'mark', done ? '✓' : '✕'),
+           h('span', null, `${done ? 'Finished' : 'Closed'}: ${r.side === 'sell' ? 'sell' : 'buy'} ${fmt.format(r.filled)}/${fmt.format(r.of)} ${r.item}` +
+             (done ? ' — collect it' : '')));
+  return p;
+}
+
+// ---- header
 document.getElementById('plan-title').textContent = data.title;
-document.getElementById('plan-sub').textContent = data.subtitle || '';
-if (data.live) {  // the board rewrites itself on every ledger change: reload to pick it up
-  setTimeout(() => location.reload(), 20000);
+const stats = document.getElementById('stats');
+for (const part of (data.subtitle || '').split(' · ').filter(Boolean)) {
+  const [k, ...rest] = part.split(' ');
+  const s = h('span', 'stat' + (part.includes('+') ? ' up' : ''));
+  if (/^Updated/.test(part)) s.textContent = part;
+  else { s.append(`${k} ${rest.slice(0, -1).join(' ')} `.replace(/\s+$/, ' '), h('b', null, rest.at(-1))); }
+  stats.append(s);
 }
 document.getElementById('foot').textContent = data.footer;
-const rows = document.getElementById('rows');
-rows.style.cssText = 'display:grid;gap:.35rem';
+
+// ---- group rows by GE slot: finished/closed offers as a history line, the live one as the card body
+const groups = new Map();
 for (const r of data.rows) {
-  const done = r.state && r.state !== 'open';
-  const row = h('div', 'row' + (done ? ' done' : ''));
-  const main = h('div', 'main');
-  if (r.pre) main.append(h('span', 'pre', r.pre));
-  const item = h('span', 'chip');
-  item.append(h('span', 'item', (r.star ? '★ ' : '') + r.item), copyBtn(r.item, `item name ${r.item}`));
-  main.append(item);
-  if (r.qty != null) main.append(field('qty', r.qty));
-  if (r.price != null) main.append(field('@', r.price));
-  if (r.qty != null && r.price != null && r.verb !== 'KEEP' && r.verb !== 'ABORT') {
-    const total = r.ge_total ?? r.qty * r.price;
-    main.append(h('span', 'check', `GE total should read ${fmt.format(total)}` + (r.side === 'sell' ? ' (after 2% tax)' : '')));
-  }
-  if (r.grind) {
-    const g = h('span', 'chip');
-    g.append(h('span', 'label', `→ grind into ${fmt.format(r.grind.n)}`), h('span', 'item', r.grind.into), copyBtn(r.grind.into, `item name ${r.grind.into}`));
-    main.append(g);
-  }
-  if (r.then_sell != null) main.append(field('then sell @', r.then_sell));
-  if (r.trait) main.append(h('span', 'trait', r.trait));
-  if (r.of && (r.filled || done)) {
-    const pct = Math.round((r.filled / r.of) * 100);
-    const label = done ? (r.state === 'done' ? `✓ completed ${fmt.format(r.filled)}/${fmt.format(r.of)}`
-                                              : `✕ closed at ${fmt.format(r.filled)}/${fmt.format(r.of)}`)
-                       : `${fmt.format(r.filled)}/${fmt.format(r.of)} filled`;
-    const p = h('span', 'progress-chip', label);
-    p.style.setProperty('--pct', `${pct}%`);
-    main.append(p);
-  }
-  if (r.note) main.append(h('span', 'note', r.note));
-  const n = h('span', 'n');
-  n.append(h('span', 'slot', r.slot ? `Slot ${r.slot}` : '—'), h('span', 'num', `#${r.n}`));
-  row.append(n, h('span', `verb v-${r.verb}`, r.verb), main);
-  rows.append(row);
+  const k = r.slot ?? `x${r.n}`;
+  if (!groups.has(k)) groups.set(k, []);
+  groups.get(k).push(r);
 }
+const slotsEl = document.getElementById('slots');
+for (const [k, rows] of groups) {
+  const finished = rows.filter((r) => r.state && r.state !== 'open');
+  const live = rows.filter((r) => !r.state || r.state === 'open');
+  const main = live.at(-1) ?? rows.at(-1);
+  const card = h('article', 'slot' + (live.length ? '' : ' idle'));
+  card.style.setProperty('--accent-c', COLOR[main.verb] || 'var(--keep)');
+  card.setAttribute('aria-label', `Slot ${main.slot ?? ''} ${main.verb} ${main.item}`);
+  const head = h('div', 'slot-head');
+  head.append(h('span', 'slot-no', main.slot ? `Slot ${main.slot}` : 'No slot'), h('span', 'pill', main.verb), h('span', 'idx', `#${main.n}`));
+  card.append(head);
+  if (finished.length && live.length) { const hist = h('div', 'history'); finished.forEach((r) => hist.append(past(r))); card.append(hist); }
+  card.append(live.length ? entry(main) : (() => { const e = h('div', 'entry'); e.append(past(main)); return e; })());
+  slotsEl.append(card);
+}
+
+if (data.live) setTimeout(() => location.reload(), 20000);  // the board file is rewritten on every ledger change
 </script>
 </body>
 </html>
