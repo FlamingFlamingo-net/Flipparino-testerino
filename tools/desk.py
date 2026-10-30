@@ -643,6 +643,7 @@ def cmd_plan(args):
                     o["note"] = note
                 s["orders"].append(o)
         s["plans"].append({"id": plan_id, "at": t.isoformat(), "prices_at": mk["fetched"], "map": pmap})
+        s["plans"][-1]["snap"] = plan_snapshot(s, s["plans"][-1])
         if saved_cfg:
             cfg.update(saved_cfg)  # the check-in gap applies to this plan only
         save_state(s)
@@ -672,7 +673,7 @@ def plan_rows(s, plan) -> list[dict]:
         o = by_id[oid]
         log = next((e for e in reversed(o.get("log", [])) if e.get("plan") == plan["id"]), None)
         rem = o["qty"] - sum(f["qty"] for f in o["fills"] if f["at"] < plan["at"])
-        row = {"n": int(n), "item": o["name"], "star": bool(o.get("watch")), "slot": o.get("slot")}
+        row = {"n": int(n), "item": o["name"], "star": bool(o.get("watch")), "slot": o.get("slot"), "oid": oid}
         if log and log["action"] == "abort":
             row.update(verb="ABORT", qty=rem, price=o["price"],
                        note=f"abort this {o['side']} offer and collect what filled" + (f": {log['note']}" if log.get("note") else ""))
@@ -715,6 +716,42 @@ def plan_rows(s, plan) -> list[dict]:
 BOARD = "latest.html"  # stable file for the Hermes side panel
 
 
+def plan_snapshot(s, plan) -> list[dict]:
+    """What a plan told the user, per offer: kept with the plan so the next one can show deviations."""
+    if plan.get("snap") is not None:
+        return plan["snap"]
+    return [{k: r.get(k) for k in ("slot", "oid", "item", "side", "price", "of", "verb")}
+            for r in plan_rows(s, plan) if r["verb"] != "ABORT" and r.get("price") is not None]
+
+
+def mark_changes(s, plan, rows) -> None:
+    """Flag every row that deviates from the previous report: price, quantity, cancelled, or a
+    different offer in the slot. Adds row["changes"] = [{"what", "from", "to"}]."""
+    i = next((k for k, p in enumerate(s["plans"]) if p["id"] == plan["id"]), None)
+    if not i:
+        return
+    prev = plan_snapshot(s, s["plans"][i - 1])
+    by_oid = {p["oid"]: p for p in prev}
+    for r in rows:
+        ch = []
+        p = by_oid.get(r.get("oid"))
+        if r["verb"] == "ABORT":
+            ch.append({"what": "cancel", "from": r.get("price"), "to": None})
+        elif p:
+            if r.get("price") is not None and p.get("price") is not None and r["price"] != p["price"]:
+                ch.append({"what": "price", "from": p["price"], "to": r["price"]})
+            if r.get("of") and p.get("of") and r["of"] != p["of"]:
+                ch.append({"what": "qty", "from": p["of"], "to": r["of"]})
+            if r.get("slot") and p.get("slot") and r["slot"] != p["slot"]:
+                ch.append({"what": "slot", "from": p["slot"], "to": r["slot"]})
+        elif r.get("state", "open") == "open":
+            was = [x for x in prev if x.get("slot") == r.get("slot") and r.get("slot")]
+            ch.append({"what": "new", "from": f"{was[-1]['side'].upper()} {was[-1]['item']}" if was else None,
+                       "to": f"{r.get('side', r['verb']).upper()} {r['item']}"})
+        if ch:
+            r["changes"] = ch
+
+
 def write_widget(s, plan, live: bool = False) -> Path:
     """Render a plan's panel. live=True writes the always-current board (ledger/latest.html),
     which shows fills and finished offers and reloads itself."""
@@ -735,6 +772,7 @@ def write_widget(s, plan, live: bool = False) -> Path:
             elif r_.get("state") == "cancelled":
                 r_["note"] = "closed, replaced by the offer below" if r_["verb"] == "CHANGE" else "closed"
         rows.sort(key=lambda r_: (r_.get("slot") or 99, r_["state"] == "open"))
+    mark_changes(s, plan, rows)
     real = sum(x["profit"] for x in s["realized"])
     data = {
         "title": f"{t:%A %d %b} — {'morning' if t.hour < 12 else 'afternoon' if t.hour < 17 else 'evening'} plan",

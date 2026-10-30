@@ -81,6 +81,17 @@
   button.copy.ok { color: var(--buy); border-color: var(--buy); }
 
   .slot.idle .entry { opacity: .55; }
+  /* deviations from the previous report */
+  :root { --chg: #b7791f; --chg-bg: color-mix(in oklab, #facc15 22%, transparent); }
+  @media (prefers-color-scheme: dark) { :root { --chg: #facc15; --chg-bg: color-mix(in oklab, #facc15 16%, transparent); } }
+  .chg-badge { font-size: 15px; font-weight: 800; letter-spacing: .06em; color: var(--chg);
+               background: var(--chg-bg); border: 1px solid var(--chg); border-radius: 6px; padding: 0 8px; }
+  .slot.changed { box-shadow: 0 0 0 2px var(--chg) inset; }
+  .num.chg { background: var(--chg-bg); border-radius: 6px; padding: 2px 6px; margin: -2px -6px; }
+  .num.chg .v { color: var(--chg); }
+  .num .was { display: block; font-size: 11px; color: var(--chg); text-decoration: line-through; }
+  .chg-line { margin-top: 6px; font-size: 12.5px; font-weight: 650; color: var(--chg); background: var(--chg-bg);
+              border-radius: 6px; padding: 4px 8px; }
   .foot { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
 </style>
 </head>
@@ -121,7 +132,13 @@ function copyBtn(text) {
   b.addEventListener('click', () => copy(String(text), b));
   return b;
 }
-const num = (k, v, cls = '') => { const d = h('div', `num ${cls}`); d.append(h('span', 'k', k), h('span', 'v', fmt.format(v))); return d; };
+const num = (k, v, cls = '', was = null) => {
+  const d = h('div', `num ${cls}${was != null ? ' chg' : ''}`);
+  d.append(h('span', 'k', k), h('span', 'v', fmt.format(v)));
+  if (was != null) d.append(h('span', 'was', `was ${fmt.format(was)}`));
+  return d;
+};
+const change = (r, what) => (r.changes || []).find((c) => c.what === what);
 
 function entry(r) {
   const e = h('div', 'entry');
@@ -133,8 +150,9 @@ function entry(r) {
   e.append(name);
 
   const nums = h('div', 'nums');
-  if (r.qty != null) nums.append(num('Quantity', r.qty));
-  if (r.price != null) nums.append(num(r.side === 'sell' ? 'Sell at' : r.verb === 'CHANGE' ? 'New price' : 'Price', r.price));
+  const cq = change(r, 'qty'), cp = change(r, 'price');
+  if (r.qty != null) nums.append(num('Quantity', r.qty, '', cq ? cq.from : null));
+  if (r.price != null) nums.append(num(r.side === 'sell' ? 'Sell at' : r.verb === 'CHANGE' ? 'New price' : 'Price', r.price, '', cp ? cp.from : null));
   if (r.then_sell != null) nums.append(num('Then sell at', r.then_sell, 'sellto'));
   e.append(nums);
 
@@ -158,10 +176,21 @@ function entry(r) {
   const tags = [r.trait, ...(r.note ? [] : [])].filter(Boolean);
   if (tags.length) { const t = h('div', 'tags'); tags.forEach((x) => t.append(h('span', 'tag', x))); e.append(t); }
   if (r.note) e.append(h('div', 'note', r.note));
+  for (const c of r.changes || []) {
+    if (c.what === 'new') e.append(h('div', 'chg-line', c.from ? `New offer in this slot (was ${c.from})` : 'New offer in an empty slot'));
+    if (c.what === 'slot') e.append(h('div', 'chg-line', `Moved from slot ${c.from}`));
+    if (c.what === 'price') e.append(h('div', 'chg-line', `Price ${fmt.format(c.from)} → ${fmt.format(c.to)}`));
+    if (c.what === 'qty') e.append(h('div', 'chg-line', `Quantity ${fmt.format(c.from)} → ${fmt.format(c.to)}`));
+  }
   return e;
 }
 
 function past(r) {
+  if (change(r, 'cancel')) {
+    const p = h('div', 'chg-line', `✕ CANCEL: abort the ${r.side === 'sell' ? 'sell' : 'buy'} offer for ${r.item}` +
+      ` @ ${fmt.format(r.price)}${r.filled ? ` and collect the ${fmt.format(r.filled)} that filled` : ''}`);
+    return p;
+  }
   const p = h('div', 'past');
   const done = r.state === 'done';
   p.append(h('span', 'mark', done ? '✓' : '✕'),
@@ -194,11 +223,14 @@ for (const [k, rows] of groups) {
   const finished = rows.filter((r) => r.state && r.state !== 'open');
   const live = rows.filter((r) => !r.state || r.state === 'open');
   const main = live.at(-1) ?? rows.at(-1);
-  const card = h('article', 'slot' + (live.length ? '' : ' idle'));
+  const changed = rows.some((r) => r.changes && r.changes.length);
+  const card = h('article', 'slot' + (live.length ? '' : ' idle') + (changed ? ' changed' : ''));
   card.style.setProperty('--accent-c', COLOR[main.verb] || 'var(--keep)');
   card.setAttribute('aria-label', `Slot ${main.slot ?? ''} ${main.verb} ${main.item}`);
   const head = h('div', 'slot-head');
-  head.append(h('span', 'slot-no', main.slot ? `Slot ${main.slot}` : 'No slot'), h('span', 'pill', main.verb), h('span', 'idx', `#${main.n}`));
+  head.append(h('span', 'slot-no', main.slot ? `Slot ${main.slot}` : 'No slot'), h('span', 'pill', main.verb));
+  if (changed) head.append(h('span', 'chg-badge', 'CHANGE'));
+  head.append(h('span', 'idx', `#${main.n}`));
   card.append(head);
   if (finished.length && live.length) { const hist = h('div', 'history'); finished.forEach((r) => hist.append(past(r))); card.append(hist); }
   card.append(live.length ? entry(main) : (() => { const e = h('div', 'entry'); e.append(past(main)); return e; })());

@@ -271,6 +271,24 @@ class FillTests(LedgerCase):
         self.assertEqual((s["cfg"]["hold_hours"], s["cfg"]["min_slot_hours"]), (12, 6))  # one plan only
         self.assertTrue(s["next_checkin"].startswith("2026-10-29T07:00"))
 
+    def test_changes_vs_last_report_are_flagged(self):
+        self.plan()
+        s = desk.load_state()
+        n, o = self.num("Bones")
+        self.run_cmd(desk.cmd_edit, n=n, price=1_005, qty=9_000, pin=True, slot=None)  # user placed it differently
+        self.age(1)
+        self.plan()  # pinned offer is kept, but it deviates from the last report
+        s = desk.load_state()
+        rows = desk.plan_rows(s, s["plans"][-1])
+        desk.mark_changes(s, s["plans"][-1], rows)
+        row = next(r for r in rows if r["item"] == "Bones")
+        got = {c["what"]: (c["from"], c["to"]) for c in row["changes"]}
+        self.assertEqual(got["price"], (o["price"], 1_005))
+        self.assertEqual(got["qty"], (o["qty"], 9_000))
+        self.assertTrue(all("changes" not in r for r in rows if r["item"] != "Bones" and r["verb"] == "KEEP"))
+        html = (desk.LEDGER / desk.BOARD).read_text(encoding="utf-8")
+        self.assertIn('"what": "price"', html)
+
     def test_kept_buy_still_shows_its_sell_price(self):
         n, o = self.num("Bones")
         self.age(1)  # not stale: the next plan keeps it
