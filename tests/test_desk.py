@@ -101,7 +101,7 @@ class LedgerCase(unittest.TestCase):
         return buf.getvalue()
 
     def plan(self, **kw):
-        args = {"dry_run": False, "review_all": False, "away": None, **kw}
+        args = {"dry_run": False, "review_all": False, "away": None, "next": None, **kw}
         return self.run_cmd(desk.cmd_plan, **args)
 
     def fill(self, n, qty=None, to=None, price=None, close=False, no_sell=False):
@@ -262,6 +262,14 @@ class FillTests(LedgerCase):
         self.assertEqual(live["price"], 1_061)  # re-priced twice
         row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
         self.assertEqual((row["verb"], row["price"]), ("CHANGE", 1_061))
+
+    def test_next_checkin_sizes_for_the_gap_and_is_not_saved(self):
+        self.assertAlmostEqual(desk.hours_until(self.clock, "07:00"), 22.0)  # Wed 09:00 -> Thu 07:00
+        out = self.plan(next="07:00")
+        self.assertIn("next check-in at **07:00** (~22h)", out)
+        s = desk.load_state()
+        self.assertEqual((s["cfg"]["hold_hours"], s["cfg"]["min_slot_hours"]), (12, 6))  # one plan only
+        self.assertTrue(s["next_checkin"].startswith("2026-10-29T07:00"))
 
     def test_kept_buy_still_shows_its_sell_price(self):
         n, o = self.num("Bones")

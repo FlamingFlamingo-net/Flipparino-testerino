@@ -348,12 +348,28 @@ def sell_target(s, it, hold, planned=None, st=None):
     return base, None
 
 
+def hours_until(t: dt.datetime, hhmm: str) -> float:
+    """Hours from t to the next HH:MM (today if still ahead, else tomorrow)."""
+    h, m = map(int, hhmm.split(":"))
+    nxt = t.replace(hour=h, minute=m, second=0, microsecond=0)
+    if nxt <= t:
+        nxt += dt.timedelta(days=1)
+    return (nxt - t).total_seconds() / 3600
+
+
 def cmd_plan(args):
     s = load_state()
     cfg = s["cfg"]
+    t = now()
+    saved_cfg = None
+    if getattr(args, "next", None):  # the user's next check-in: size and rank for that gap
+        gap = hours_until(t, args.next)
+        saved_cfg = {k: cfg[k] for k in ("hold_hours", "min_slot_hours")}
+        cfg["hold_hours"] = min(max(gap, 2), 36)       # an offer gets until then to fill
+        cfg["min_slot_hours"] = max(saved_cfg["min_slot_hours"], min(gap, 36))  # a slot can't be reused sooner
+        s["next_checkin"] = (t + dt.timedelta(hours=gap)).isoformat()
     mk = rm.load_market()
     items = mk["items"]
-    t = now()
     watch_ids = {mk["by_name"][n]["id"] for n in cfg["watchlist"] if n in mk["by_name"]}
 
     open_o = open_orders(s)
@@ -627,9 +643,18 @@ def cmd_plan(args):
                     o["note"] = note
                 s["orders"].append(o)
         s["plans"].append({"id": plan_id, "at": t.isoformat(), "prices_at": mk["fetched"], "map": pmap})
+        if saved_cfg:
+            cfg.update(saved_cfg)  # the check-in gap applies to this plan only
         save_state(s)
 
+    if saved_cfg:
+        cfg.update(saved_cfg)
     md = render_plan(s, t, mk, lines, args.dry_run, len(failed))
+    if getattr(args, "next", None):
+        gap = hours_until(t, args.next)
+        md = md.replace("\n\n**Do these trades:**", f"\nPlanned for your next check-in at **{args.next}** "
+                        f"(~{gap:.0f}h): offers are sized to fill by then and ranked by profit per check-in."
+                        "\n\n**Do these trades:**", 1)
     if not args.dry_run:
         (LEDGER / "plans").mkdir(parents=True, exist_ok=True)
         html = write_widget(s, s["plans"][-1])
@@ -1237,6 +1262,7 @@ def main():
     p = sub.add_parser("plan"); p.add_argument("--dry-run", action="store_true")
     p.add_argument("--review-all", action="store_true")
     p.add_argument("--away", type=float, metavar="DAYS", help="fill free slots with set-and-forget trades for DAYS away")
+    p.add_argument("--next", metavar="HH:MM", help="your next check-in (local time): size and rank trades for that gap")
     p.set_defaults(fn=cmd_plan)
     sub.add_parser("status").set_defaults(fn=cmd_status)
     p = sub.add_parser("fill"); p.add_argument("n", type=int)
