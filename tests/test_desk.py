@@ -298,6 +298,12 @@ class FillTests(LedgerCase):
         html = (desk.LEDGER / desk.BOARD).read_text(encoding="utf-8")
         self.assertIn('"what": "price"', html)
 
+    def test_watching_mode(self):
+        out = self.plan(next="0")
+        self.assertIn("Watching mode", out)
+        s = desk.load_state()
+        self.assertEqual((s["next_checkin"], s["cfg"]["hold_hours"], s["cfg"]["min_slot_hours"]), ("watching", 12, 6))
+
     def test_kept_buy_still_shows_its_sell_price(self):
         n, o = self.num("Bones")
         self.age(1)  # not stale: the next plan keeps it
