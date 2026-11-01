@@ -14,14 +14,14 @@
     --line: var(--border, #e3e6ea);
     --surface: var(--card, #ffffff);
     --page: #f5f6f8;
-    --buy: #15803d; --sell: #1d4ed8; --change: #b45309; --abort: #b91c1c; --keep: #6b7280;
+    --buy: #15803d; --sell: #1d4ed8; --change: #9333ea; --abort: #b91c1c; --keep: #6b7280;
     color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --fg: var(--foreground, #e7e9ec); --muted: var(--muted-foreground, #9aa3ad);
       --line: var(--border, #2c3138); --surface: var(--card, #1b1f24); --page: #121417;
-      --buy: #4ade80; --sell: #7aa2ff; --change: #fbbf24; --abort: #f87171; --keep: #9aa3ad;
+      --buy: #4ade80; --sell: #7aa2ff; --change: #c084fc; --abort: #f87171; --keep: #9aa3ad;
     }
   }
   * { box-sizing: border-box; }
@@ -81,6 +81,15 @@
   button.copy.ok { color: var(--buy); border-color: var(--buy); }
 
   .slot.idle .entry { opacity: .55; }
+  /* re-price an offer that is already in the GE: its own colour, hard to miss */
+  .rp-badge { font-size: 15px; font-weight: 800; letter-spacing: .06em; color: var(--change);
+              background: color-mix(in oklab, var(--change) 16%, transparent); border: 1px solid var(--change);
+              border-radius: 6px; padding: 0 8px; }
+  .slot.reprice { box-shadow: 0 0 0 2px var(--change) inset; }
+  .rp-line { margin-top: 6px; font-size: 13px; font-weight: 700; color: var(--change);
+             background: color-mix(in oklab, var(--change) 14%, transparent); border-radius: 6px; padding: 5px 8px; }
+  .num.rp .v { color: var(--change); }
+  .num.rp .was { display: block; font-size: 11px; color: var(--change); text-decoration: line-through; }
   /* deviations from the previous report */
   :root { --chg: #b7791f; --chg-bg: color-mix(in oklab, #facc15 22%, transparent); }
   @media (prefers-color-scheme: dark) { :root { --chg: #facc15; --chg-bg: color-mix(in oklab, #facc15 16%, transparent); } }
@@ -152,7 +161,12 @@ function entry(r) {
   const nums = h('div', 'nums');
   const cq = change(r, 'qty'), cp = change(r, 'price');
   if (r.qty != null) nums.append(num('Quantity', r.qty, '', cq ? cq.from : null));
-  if (r.price != null) nums.append(num(r.side === 'sell' ? 'Sell at' : r.verb === 'CHANGE' ? 'New price' : 'Price', r.price, '', cp ? cp.from : null));
+  if (r.price != null) {
+    const rp = r.verb === 'CHANGE';
+    const box = num(r.side === 'sell' ? 'Sell at' : rp ? 'New price' : 'Price', r.price, rp ? 'rp' : '', rp ? null : (cp ? cp.from : null));
+    if (rp && r.was_price != null) box.append(h('span', 'was', `was ${fmt.format(r.was_price)}`));
+    nums.append(box);
+  }
   if (r.then_sell != null) nums.append(num('Then sell at', r.then_sell, 'sellto'));
   e.append(nums);
 
@@ -175,7 +189,10 @@ function entry(r) {
   }
   const tags = [r.trait, ...(r.note ? [] : [])].filter(Boolean);
   if (tags.length) { const t = h('div', 'tags'); tags.forEach((x) => t.append(h('span', 'tag', x))); e.append(t); }
-  if (r.note) e.append(h('div', 'note', r.note));
+  if (r.verb === 'CHANGE' && r.state === 'open') {
+    e.append(h('div', 'rp-line', `RE-PRICE: abort this ${r.side === 'sell' ? 'sell' : 'buy'} offer and re-list ` +
+      `${fmt.format(r.qty)} at ${fmt.format(r.price)}` + (r.was_price != null ? ` (now listed at ${fmt.format(r.was_price)})` : '')));
+  } else if (r.note) e.append(h('div', 'note', r.note));
   for (const c of r.changes || []) {
     if (c.what === 'new') e.append(h('div', 'chg-line', c.from ? `New offer in this slot (was ${c.from})` : 'New offer in an empty slot'));
     if (c.what === 'slot') e.append(h('div', 'chg-line', `Moved from slot ${c.from}`));
@@ -224,11 +241,14 @@ for (const [k, rows] of groups) {
   const live = rows.filter((r) => !r.state || r.state === 'open');
   const main = live.at(-1) ?? rows.at(-1);
   const changed = rows.some((r) => r.changes && r.changes.length);
-  const card = h('article', 'slot' + (live.length ? '' : ' idle') + (changed ? ' changed' : ''));
+  const repricing = live.some((r) => r.verb === 'CHANGE');
+  const card = h('article', 'slot' + (live.length ? '' : ' idle') + (repricing ? ' reprice' : changed ? ' changed' : ''));
   card.style.setProperty('--accent-c', COLOR[main.verb] || 'var(--keep)');
   card.setAttribute('aria-label', `Slot ${main.slot ?? ''} ${main.verb} ${main.item}`);
   const head = h('div', 'slot-head');
-  head.append(h('span', 'slot-no', main.slot ? `Slot ${main.slot}` : 'No slot'), h('span', 'pill', main.verb));
+  head.append(h('span', 'slot-no', main.slot ? `Slot ${main.slot}` : 'No slot'),
+              h('span', 'pill', main.verb === 'CHANGE' ? 'RE-PRICE' : main.verb));
+  if (repricing) head.append(h('span', 'rp-badge', 'RE-PRICE'));
   if (changed) head.append(h('span', 'chg-badge', 'CHANGE'));
   head.append(h('span', 'idx', `#${main.n}`));
   card.append(head);

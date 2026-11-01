@@ -626,9 +626,11 @@ def cmd_plan(args):
                 o["closed"] = t.isoformat()
                 o.setdefault("log", []).append({"at": t.isoformat(), "action": "abort", "plan": plan_id, "note": note})
             elif kind == "reprice":
+                was = o["price"]
                 o["price"] = note[0]
                 o["placed"] = t.isoformat()
-                o.setdefault("log", []).append({"at": t.isoformat(), "action": "reprice", "price": note[0], "plan": plan_id,
+                o.setdefault("log", []).append({"at": t.isoformat(), "action": "reprice", "price": note[0], "was": was,
+                                                "plan": plan_id,
                                                 "note": note[2], "then_sell": note[1]})
                 x = note[3]
                 if o["side"] == "buy" and x:
@@ -679,6 +681,8 @@ def plan_rows(s, plan) -> list[dict]:
             row.update(verb="ABORT", qty=rem, price=o["price"],
                        note=f"abort this {o['side']} offer and collect what filled" + (f": {log['note']}" if log.get("note") else ""))
         elif log and log["action"] == "reprice":
+            prior = [e for e in o.get("log", []) if e.get("price") and e["at"] < log["at"]]
+            row["was_price"] = log.get("was") or (prior[-1]["price"] if prior else None)
             row.update(verb="CHANGE", qty=rem, price=log["price"], note=f"{o['side']} offer: abort and re-place at the new price"
                        + (f"; {log['note']}" if log.get("note") else ""))
             if o["side"] == "buy" and (log.get("then_sell") or o.get("target_sell")):
@@ -739,7 +743,8 @@ def mark_changes(s, plan, rows) -> None:
         if r["verb"] == "ABORT":
             ch.append({"what": "cancel", "from": r.get("price"), "to": None})
         elif p:
-            if r.get("price") is not None and p.get("price") is not None and r["price"] != p["price"]:
+            if (r["verb"] != "CHANGE" and r.get("price") is not None and p.get("price") is not None
+                    and r["price"] != p["price"]):  # a planned re-price has its own (purple) look
                 ch.append({"what": "price", "from": p["price"], "to": r["price"]})
             if r.get("of") and p.get("of") and r["of"] != p["of"]:
                 ch.append({"what": "qty", "from": p["of"], "to": r["of"]})
@@ -863,7 +868,7 @@ def render_action(n, kind, o, note, items, s):
     if kind == "reprice":
         new_price, _sell, why, x = note
         extra = f" · then sell @ {gp(x['sell'])}" if x else ""
-        return (f"{n}) **CHANGE** {side} {o['name']}: abort and re-place at **{gp(new_price)}** "
+        return (f"{n}) 🟣 **RE-PRICE** {side} {o['name']}: abort and re-place at **{gp(new_price)}** "
                 f"for the remaining **{gp(rem)}** (was {gp(o['price'])}){mkt}{extra}" + (f". *{why}*" if why else ""))
     if kind == "new" and o["side"] == "buy":
         flags = f" · ⚑ {', '.join(o['flags'])}" if o.get("flags") else ""

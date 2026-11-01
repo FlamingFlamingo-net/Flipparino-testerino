@@ -270,6 +270,7 @@ class FillTests(LedgerCase):
         self.assertEqual(live["price"], 1_061)  # re-priced twice
         row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
         self.assertEqual((row["verb"], row["price"]), ("CHANGE", 1_061))
+        self.assertIsNotNone(row["was_price"])  # the board shows what it's listed at now, crossed out
 
     def test_next_checkin_sizes_for_the_gap_and_is_not_saved(self):
         self.assertAlmostEqual(desk.hours_until(self.clock, "07:00"), 22.0)  # Wed 09:00 -> Thu 07:00
