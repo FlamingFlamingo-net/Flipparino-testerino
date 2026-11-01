@@ -760,6 +760,8 @@ def mark_changes(s, plan, rows) -> None:
                 ch.append({"what": "slot", "from": p["slot"], "to": r["slot"]})
         elif r.get("state", "open") == "open":
             was = [x for x in prev if x.get("slot") == r.get("slot") and r.get("slot")]
+            if was and was[-1]["item"] == r["item"]:
+                continue  # same item, buy finished -> its planned sell: the expected next step, not a change
             ch.append({"what": "new", "from": f"{was[-1]['side'].upper()} {was[-1]['item']}" if was else None,
                        "to": f"{r.get('side', r['verb']).upper()} {r['item']}"})
         if ch:

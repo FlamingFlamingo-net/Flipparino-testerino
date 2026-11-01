@@ -295,8 +295,21 @@ class FillTests(LedgerCase):
         self.assertEqual(got["price"], (o["price"], 1_005))
         self.assertEqual(got["qty"], (o["qty"], 9_000))
         self.assertTrue(all("changes" not in r for r in rows if r["item"] != "Bones" and r["verb"] == "KEEP"))
+
         html = (desk.LEDGER / desk.BOARD).read_text(encoding="utf-8")
         self.assertIn('"what": "price"', html)
+
+    def test_planned_sell_after_buy_is_not_a_change(self):
+        self.plan()
+        n, o = self.num("Bones")
+        self.fill(n)  # buy done -> the "then sell" offer goes into the same slot
+        self.age(1)
+        self.plan()
+        s = desk.load_state()
+        rows = desk.plan_rows(s, s["plans"][-1])
+        desk.mark_changes(s, s["plans"][-1], rows)
+        sell = next(r for r in rows if r["item"] == "Bones" and r.get("side") == "sell")
+        self.assertNotIn("changes", sell)  # not "BUY Bones -> SELL Bones" in yellow
 
     def test_watching_mode(self):
         out = self.plan(next="0")
