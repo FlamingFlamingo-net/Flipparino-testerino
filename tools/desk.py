@@ -540,7 +540,8 @@ def cmd_plan(args):
             ideas += rm.suggest(it, stats.get(i), cfg, per, i in watch_ids)
         if args.away:  # away mode: only set-and-forget trades for the free slots
             ideas = away_ideas(s, mk, cfg, per, args.away, banned, used_items, watch_ids | proven_ids)
-        ideas = [x for x in ideas if x["confidence"] >= cfg["min_conf"] and x["total"] >= cfg["min_profit"]]
+        ideas = [x for x in ideas if x["confidence"] >= cfg["min_conf"] and x["total"] >= cfg["min_profit"]
+                 and "jumpy" not in x.get("flags", [])]  # thin, lumpy markets fake margins (Black stone arrows)
         for x in ideas:  # 4-hour buy limit already partly used?
             left, wait, clock = limit_state(s, x["item"])
             units = x["qty"]

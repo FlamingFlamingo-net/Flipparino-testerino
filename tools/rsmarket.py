@@ -178,11 +178,35 @@ def series_stats(points, rate: float, name: str = "") -> dict | None:
         "lowflow": sum(p.get("lowPriceVolume") or 0 for p in pts) / days,    # instant-sells/day -> fills our buys
         "highflow": sum(p.get("highPriceVolume") or 0 for p in pts) / days,  # instant-buys/day -> fills our sells
         "hourly": {p["timestamp"]: (p.get("avgHighPrice"), p.get("avgLowPrice")) for p in pts},
+        **lumpiness(pts),
     }
+
+
+def lumpiness(pts) -> dict:
+    """How jumpy/patchy the last 7 days were. `swing` = the bigger of the two sides' p90/p10 hourly
+    price ratio (a few big orders moving the "price" by thousands); `gaps` = share of hours with no
+    trades on one side. Black stone arrows (a fake 12 % margin) had swing 1.67 and gaps 0.70."""
+    def ratio(key):
+        xs = sorted(p[key] for p in pts if p.get(key))
+        if len(xs) < 10:
+            return 9.9
+        return xs[int(len(xs) * 0.9) - 1] / xs[int(len(xs) * 0.1)]
+    gaps = statistics.fmean(0.0 if p.get("avgHighPrice") and p.get("avgLowPrice") else 1.0 for p in pts)
+    swing = max(ratio("avgLowPrice"), ratio("avgHighPrice"))
+    jumpy = swing > JUMPY_SWING or (gaps > JUMPY_GAPS and swing > 1.15)
+    return {"swing": round(swing, 3), "gaps": round(gaps, 3), "jumpy": jumpy}
+
+
+# Tuned on our own trades: Black stone arrows (1.67 swing, 70 % gaps, a loss) and Mimic kill token (1.75,
+# break-even) are out; Key to the Crossing (1.28), Vital spark (1.16, 38 % gaps), Golden roses (1.05, 56 %
+# gaps) and Super ranging potion (1.51) all won and stay in.
+JUMPY_SWING = 1.60  # hourly prices on one side ranged more than 60 % (p10 to p90) over the week
+JUMPY_GAPS = 0.50   # ...or most hours had no trades on one side AND prices still moved > 15 %
 
 
 def _flags(it, st, buy, sell, flow):
     f = []
+    if st.get("jumpy"): f.append("jumpy")
     if st["cons"] < 0.6: f.append("unreliable margin")
     if st["ch24"] < -0.05: f.append("falling")
     if st["ch24"] > 0.10: f.append("spiking")

@@ -141,6 +141,14 @@ class TaxTests(unittest.TestCase):
         self.assertEqual(rm.ge_screen_total("buy", 6, 3_511_462, RATE), 21_068_772)
         self.assertEqual(rm.ge_screen_total("sell", 1_000, 40, RATE), 40_000)  # under 50 gp: no tax
 
+    def test_lumpy_market_is_jumpy(self):
+        steady = hourly(1_000, 1_100)
+        self.assertFalse(rm.lumpiness(steady)["jumpy"])
+        # Black stone arrows: a few big orders, prices all over the place, most hours empty on one side
+        lumpy = [dict(p, avgHighPrice=(3_000 if i % 3 else 13_000) if i % 2 else None) for i, p in enumerate(steady)]
+        lp = rm.lumpiness(lumpy)
+        self.assertTrue(lp["jumpy"] and lp["gaps"] > 0.4 and lp["swing"] > 1.6)
+
     def test_break_even_is_minimal(self):
         for buy in (51, 999, 4_537, 15_300, 764_716, 3_272_192):
             be = rm.break_even_sell(buy, RATE)
