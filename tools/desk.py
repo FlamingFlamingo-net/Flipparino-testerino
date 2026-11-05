@@ -169,7 +169,7 @@ def machine_left(s, w, name) -> int:
     """Still to buy for the next Tuesday load. With a stock target (the user's amount to HAVE when
     loading the machines): target - stock left after the last load - bought this week. Without one:
     capacity - what's still inside at the refill - bank - bought (keeps the machines capped).
-    Whole hundreds: up for a target, so it's reached; otherwise to the nearest."""
+    Exact amounts: no rounding to hundreds."""
     x = next((x for x in w["targets"] if x["item"] == name), None)
     if not x:
         return 0
@@ -178,9 +178,8 @@ def machine_left(s, w, name) -> int:
     target = res.get(name if kind == SUPPLY else kind)
     bank = w.get("bank", {}).get(kind, {})
     have = bank.get(name, 0) if kind == SUPPLY else sum(bank.values())
-    if target is not None:  # round UP so the stock reaches the target
-        need = max(0, target - have - w["bought"].get(name, 0))
-        return math.ceil(need / 100) * 100 if need >= 100 else need
+    if target is not None:  # exact: the user wants precisely the target on hand when loading
+        return max(0, target - have - w["bought"].get(name, 0))
     elif kind == SUPPLY:
         return 0
     else:
@@ -190,8 +189,7 @@ def machine_left(s, w, name) -> int:
         else:
             need = machine_cap(s, kind) - inside["at_refill"]
         need -= have + w["bought"].get(name, 0)
-    need = max(0, need)
-    return round(need / 100) * 100 if need >= 100 else need
+    return max(0, need)  # machine amounts are exact (no rounding to hundreds)
 
 
 def project_loaded(s, w) -> dict:
@@ -550,8 +548,7 @@ def cmd_plan(args):
                 continue
             left = machine_left(s, week, x["item"])
             lim_left, _wait, _clock = limit_state(s, it)
-            qty = int(min(left, lim_left))
-            qty = qty // 100 * 100 if qty >= 100 else qty
+            qty = int(min(left, lim_left))  # exact: machine stock must land on the target, not past it
             if qty <= 0:
                 continue
             o = new_order(s, "buy", it, qty, math.ceil(mc.robust_low(it)) + 1, "machine")

@@ -534,7 +534,7 @@ class MachineDeskTests(LedgerCase):
         s = desk.load_state()
         w = s["machines"]["week"]
         self.assertEqual(desk.machine_left(s, w, "Speedy whirligig shell"), 4_800)  # 10,000 - 5,200 left
-        self.assertEqual(desk.machine_left(s, w, "Nature rune"), 7_700)               # 7,650 rounded up: reach 100k
+        self.assertEqual(desk.machine_left(s, w, "Nature rune"), 7_650)               # exact: lands on 100k
         self.assertEqual(desk.machine_left(s, w, "Divine charge"), 38)                # under 100 stays exact
         w["bought"]["Speedy whirligig shell"] = 4_800
         self.assertEqual(desk.machine_left(s, w, "Speedy whirligig shell"), 0)
