@@ -1122,6 +1122,19 @@ def cmd_cancel(a):
     print(f"{o['id']} {o['side']} {o['name']} cancelled ({gp(filled(o))}/{gp(o['qty'])} had filled).")
 
 
+def cmd_reopen(a):
+    """An offer the plan aborted (or that was cancelled) is actually still in the GE."""
+    s = load_state()
+    o = order_by_number(s, a.n)
+    if o["status"] == "open":
+        sys.exit(f"{o['id']} is already open.")
+    o["status"] = "open"
+    o.pop("closed", None)
+    o.setdefault("log", []).append({"at": now().isoformat(), "action": "edit", "note": "reopened: still in the GE"})
+    save_state(s)
+    print(f"{o['id']} {o['side']} {o['name']} reopened ({gp(filled(o))}/{gp(o['qty'])} filled).")
+
+
 def cmd_set(a):
     s = load_state()
     if a.cash is not None: s["cash"] = a.cash
@@ -1408,6 +1421,8 @@ def main():
     p.add_argument("--no-sell", action="store_true", help="don't auto-record the follow-up sell offer")
     p.set_defaults(fn=cmd_fill)
     p = sub.add_parser("cancel"); p.add_argument("n", type=int); p.set_defaults(fn=cmd_cancel)
+    p = sub.add_parser("reopen", help="an offer the plan aborted is still in the GE")
+    p.add_argument("n", type=int); p.set_defaults(fn=cmd_reopen)
     p = sub.add_parser("set"); p.add_argument("--cash", type=gp_arg); p.add_argument("--capital", type=gp_arg)
     p.add_argument("--tax", type=float); p.set_defaults(fn=cmd_set)
     p = sub.add_parser("holding"); p.add_argument("name"); p.add_argument("qty", type=gp_arg)

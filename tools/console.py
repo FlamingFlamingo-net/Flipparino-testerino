@@ -91,6 +91,22 @@ def commands_for(row: dict, act: dict) -> list[list[str]]:
         return [["edit", n, "--price", str(row["was_price"])]]
     if kind == "keep":
         return [["edit", n, *p, "--pin"]]
+    # the plan said ABORT (and maybe re-list what filled as a sell): row has sell_n for that sell
+    sell_n = str(row["sell_n"]) if row.get("sell_n") else None
+    if kind == "not_aborted":  # still in the GE: reopen it, drop the sell we assumed was listed
+        cmds = [["reopen", n]]
+        if qty is not None and int(qty) > int(row.get("filled") or 0):
+            cmds.append(["fill", n, "--to", str(qty), "--no-sell"])
+        if sell_n:
+            cmds.append(["cancel", sell_n])
+        return cmds
+    if kind == "more_filled":  # aborted, but more had filled than recorded: sell them all
+        if qty is None:
+            raise ValueError("enter how many were bought in total")
+        cmds = [["fill", n, "--to", str(qty), "--no-sell"]]
+        if sell_n:
+            cmds.append(["edit", sell_n, "--qty", str(qty)])
+        return cmds
     raise ValueError(f"unknown action {kind}")
 
 
@@ -126,13 +142,23 @@ def open_rows() -> dict:
             "was_price": r.get("was_price"), "then_sell": o.get("target_sell") if o["side"] == "buy" else None,
             "machine": o.get("strategy") == "machine", "pinned": bool(o.get("pinned")),
         })
+    # offers this plan aborted: reportable too ("abort not done", "more had filled")
+    for oid, rr in by_oid.items():
+        if rr.get("verb") != "ABORT" or oid not in num:
+            continue
+        o = next(x for x in s["orders"] if x["id"] == oid)
+        sell = next((x for x in desk.open_orders(s) if x["side"] == "sell" and x["item_id"] == o["item_id"]
+                     and x.get("slot") == o.get("slot") and x.get("plan") == plan["id"] and not desk.filled(x)), None)
+        rows.append({"n": num[oid], "slot": o.get("slot"), "item": o["name"], "side": o["side"], "qty": o["qty"],
+                     "filled": desk.filled(o), "price": o["price"], "verb": "ABORT", "aborted": True,
+                     "sell_n": num.get(sell["id"]) if sell else None, "machine": o.get("strategy") == "machine"})
     rows.sort(key=lambda r: (r["slot"] or 99, r["n"] or 999))
     real = sum(x["profit"] for x in s["realized"])
     recent = [{"id": p["id"], "at": p["at"]} for p in s["plans"][-4:-1][::-1]
               if (desk.LEDGER / "plans" / f"{p['id']}.html").exists()]
     board = desk.board_data(s, plan, live=True)
     for r in board["rows"]:  # trade numbers for the report buttons (open offers only)
-        r["num"] = num.get(r.get("oid")) if r.get("state", "open") == "open" else None
+        r["num"] = num.get(r.get("oid")) if r.get("state", "open") == "open" or r.get("verb") == "ABORT" else None
     return {"board": board, "plan": plan["id"], "recent": recent, "at": plan["at"], "cash": s["cash"], "realised": real,
             "capital": s["cfg"].get("capital"), "rows": rows, "actions": ACTIONS}
 

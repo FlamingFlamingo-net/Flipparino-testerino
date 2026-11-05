@@ -119,13 +119,17 @@ body {
 .ge-empty { margin: auto; text-align: center; color: var(--ge-muted); }
 
 /* report chips: what happened, right on the card */
-.ge-report { margin-top: auto; padding-top: 5px; border-top: 1px dashed var(--ge-line); display: grid; gap: 4px; }
+.ge-report { margin-top: auto; padding-top: 3px; border-top: 1px dashed var(--ge-line); display: grid; gap: 4px; }
+.ge-report.abort { margin-top: 0; padding-top: 0; border-top: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ge-report.abort .ge-chips { display: contents; }
+.ge-report.abort .ge-extra { flex-basis: 100%; }
 .ge-report .lbl { font-size: 10.5px; color: var(--ge-muted); text-transform: uppercase; letter-spacing: .05em; }
 .ge-chips { display: flex; flex-wrap: wrap; gap: 3px; }
 .ge-chip { all: unset; cursor: pointer; font-size: 11px; padding: 1px 6px; border-radius: 3px;
            background: var(--ge-well); border: 1px solid var(--ge-line); color: var(--ge-text); }
 .ge-chip:hover { border-color: var(--ge-gold-dim); }
-.ge-chip[aria-pressed="true"] { background: var(--ge-gold); border-color: var(--ge-gold); color: #1b140d; font-weight: 700; }
+.ge-chip.suggested[aria-pressed="true"] { background: #2a2a30; border-color: var(--ge-green); color: var(--ge-green); font-weight: 700; }
+.ge-chip:not(.suggested)[aria-pressed="true"] { background: var(--ge-gold); border-color: var(--ge-gold); color: #111; font-weight: 700; }
 .ge-chip:focus-visible, .ge-btn:focus-visible, .ge-select:focus-visible, .ge-num:focus-visible { outline: 2px solid var(--ge-yellow); outline-offset: 1px; }
 .ge-extra { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ge-muted); }
 .ge-extra[hidden] { display: none; }

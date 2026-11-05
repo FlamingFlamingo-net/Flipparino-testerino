@@ -41,7 +41,14 @@ const LABELS = {
   price: () => 'Other price',
   no_reprice: () => 'Re-price not done',
   keep: () => 'Keep price',
+  not_aborted: () => 'Not aborted',
+  more_filled: () => 'More had filled',
 };
+// the default chip: "I did what the plan said" (nothing to report)
+const SUGGESTED = (r) => ({
+  BUY: 'Placed', SELL: 'Listed', CHANGE: 'Re-priced', KEEP: 'No change',
+  ABORT: r.sell_n ? 'Aborted & listed' : 'Aborted',
+}[r.verb] || 'As planned');
 const TIPS = {
   done: (r) => (r.side === 'sell' ? 'All sold' : r.machine ? 'All bought' : `All bought and listed at ${n0(r.then_sell || 0)}`),
   done_sold: () => 'All bought and already sold too',
@@ -52,9 +59,12 @@ const TIPS = {
   price: () => 'It is listed at a different price: enter it',
   no_reprice: (r) => `You didn't do the re-price: it is still at ${n0(r.was_price)}`,
   keep: () => 'Keep this price: stop suggesting changes',
+  not_aborted: (r) => `You didn't abort it: the ${r.side} is still in the GE` + (r.sell_n ? ' (and the sell is not listed)' : ''),
+  more_filled: () => 'You aborted it, but more had filled: enter the total',
 };
 
 function choicesFor(r) {
+  if (r.aborted) return ['not_aborted', 'more_filled'];
   const k = ['done'];
   if (r.side === 'buy' && !r.machine) k.push('done_sold', 'unlisted');
   k.push('part', 'aborted');
@@ -66,8 +76,8 @@ function choicesFor(r) {
 }
 
 function reportBox(open, card) {
-  const box = h('div', 'ge-report');
-  box.append(h('span', 'lbl', 'What happened?'));
+  const box = h('div', 'ge-report' + (open.aborted ? ' abort' : ''));
+  box.append(h('span', 'lbl', open.aborted ? 'The abort:' : 'What happened?'));
   const chips = h('div', 'ge-chips');
   const extra = h('div', 'ge-extra');
   extra.hidden = true;
@@ -80,12 +90,14 @@ function reportBox(open, card) {
 
   const sync = () => {
     const p = picks.get(open.n);
-    for (const b of chips.children) b.setAttribute('aria-pressed', String(p?.kind === b.dataset.kind));
-    card.classList.toggle('reported', !!p);
-    const need = p && { part: 'qty', aborted: 'qty', price: 'price', done_sold: 'sell_price' }[p.kind];
+    for (const b of chips.children) b.setAttribute('aria-pressed', String((p?.kind ?? 'suggested') === b.dataset.kind));
+    card.classList.toggle('reported', [...picks.values()].some((x) => x.card === card.dataset.slot));
+    const need = p && { part: 'qty', aborted: 'qty', price: 'price', done_sold: 'sell_price', not_aborted: 'qty', more_filled: 'qty' }[p.kind];
     extra.hidden = !need;
     if (need) {
-      xlabel.textContent = { qty: open.side === 'sell' ? 'Sold so far' : 'Bought so far', price: 'Listed at', sell_price: 'Sold at' }[need];
+      xlabel.textContent = p.kind === 'more_filled' ? 'Bought in total'
+        : p.kind === 'not_aborted' ? 'Filled so far (optional)'
+        : { qty: open.side === 'sell' ? 'Sold so far' : 'Bought so far', price: 'Listed at', sell_price: 'Sold at' }[need];
       input.placeholder = need === 'qty' ? n0(open.filled) : need === 'price' ? n0(open.price) : n0(open.then_sell || 0);
       input.max = need === 'qty' ? String(open.qty) : '';
       input.value = p[need] ?? '';
@@ -93,6 +105,12 @@ function reportBox(open, card) {
     }
     updatePending();
   };
+  const def = h('button', 'ge-chip suggested', `✓ ${SUGGESTED(open)}`);
+  def.type = 'button';
+  def.dataset.kind = 'suggested';
+  def.title = 'Done as the plan said (default)';
+  def.addEventListener('click', () => { picks.delete(open.n); sync(); });
+  chips.append(def);
   for (const kind of choicesFor(open)) {
     const b = h('button', 'ge-chip', LABELS[kind](open));
     b.type = 'button';
@@ -100,7 +118,7 @@ function reportBox(open, card) {
     b.title = TIPS[kind](open);
     b.addEventListener('click', () => {
       if (picks.get(open.n)?.kind === kind) picks.delete(open.n);
-      else picks.set(open.n, { n: open.n, kind });
+      else picks.set(open.n, { n: open.n, kind, card: card.dataset.slot });
       sync();
       if (!extra.hidden) input.focus();
     });
@@ -181,7 +199,7 @@ function entry(r, open, card) {
     if (r.note && r.note !== 'listed since the plan') body.push(h('div', 'ge-note', r.note));
   } else if (r.note && r.verb !== 'KEEP') body.push(h('div', 'ge-note', r.note));
   for (const c of r.changes || []) {
-    if (c.what === 'new') body.push(h('div', 'ge-note chg', c.from ? `New offer here (was ${c.from})` : 'New offer in an empty slot'));
+    if (c.what === 'new' && !card?.dataset.hasAbort) body.push(h('div', 'ge-note chg', c.from ? `New offer here (was ${c.from})` : 'New offer in an empty slot'));
     if (c.what === 'slot') body.push(h('div', 'ge-note chg', `Moved from slot ${c.from}`));
     if (c.what === 'qty') body.push(h('div', 'ge-note chg', `Quantity ${n0(c.from)} → ${n0(c.to)}`));
   }
@@ -191,7 +209,7 @@ function entry(r, open, card) {
 
 function pastLine(r) {
   const cancel = (r.changes || []).find((c) => c.what === 'cancel');
-  if (cancel) return h('div', 'ge-note abort', `✕ ABORT the ${r.side} offer for ${r.item} @ ${n0(r.price)}` + (r.filled ? ` and collect the ${n0(r.filled)} that filled` : ''));
+  if (cancel) return h('div', 'ge-note abort', `✕ ABORT ${r.side} ${r.item} @ ${n0(r.price)}` + (r.filled ? `, collect ${n0(r.filled)}` : ''));
   const done = r.state === 'done';
   const line = h('div', 'ge-past', `${done ? '✓ Finished' : '✕ Closed'}: ${r.side} ${n0(r.filled)}/${n0(r.of)} ${r.item}${done ? ', collect it' : ''}`);
   if (r.est && r.est.made) line.append(' ', h('b', r.est.value < 0 ? 'neg' : '', short(r.est.value)));
@@ -218,8 +236,13 @@ function slotCard(slot, rows, openByN) {
   else if (rows.some((r) => r.changes && r.changes.length)) card.classList.add('changed');
   if (!main) card.classList.add('idle');
 
+  card.dataset.slot = String(slot);
   const body = $('.ge-body', li);
-  finished.forEach((r) => body.append(pastLine(r)));
+  finished.forEach((r) => {
+    body.append(pastLine(r));
+    const ab = r.verb === 'ABORT' && r.num != null ? openByN.get(r.num) : null;
+    if (ab) { body.append(reportBox(ab, card)); card.dataset.hasAbort = '1'; }
+  });
   if (main) body.append(...entry(main, openByN.get(main.num), card));
   else if (!finished.length) body.append(h('p', 'ge-empty', 'Empty'));
   return li;
@@ -310,7 +333,8 @@ function collect() {
     const what = open ? open.item : `#${p.n}`;
     if ((p.kind === 'part' || p.kind === 'aborted') && p.qty == null) throw new Error(`${what}: enter how many filled`);
     if (p.kind === 'price' && p.price == null) throw new Error(`${what}: enter the price it's listed at`);
-    out.push(p);
+    const { card, ...send } = p;
+    out.push(send);
   }
   return out;
 }

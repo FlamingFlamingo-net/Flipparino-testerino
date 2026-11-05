@@ -573,6 +573,17 @@ class ConsoleTests(unittest.TestCase):
         self.assertEqual(cf(buy, {"kind": "no_reprice"}), [["edit", "3", "--price", "100"]])
         self.assertEqual(cf(buy, {"kind": "keep"}), [["edit", "3", "--pin"]])
 
+    def test_abort_not_done_or_more_filled(self):
+        cf = self.c.commands_for
+        ab = {"n": 3, "side": "buy", "filled": 1776, "sell_n": 4}
+        self.assertEqual(cf(ab, {"kind": "not_aborted"}), [["reopen", "3"], ["cancel", "4"]])
+        self.assertEqual(cf(ab, {"kind": "not_aborted", "qty": 2500}),
+                         [["reopen", "3"], ["fill", "3", "--to", "2500", "--no-sell"], ["cancel", "4"]])
+        self.assertEqual(cf(ab, {"kind": "more_filled", "qty": 2000}),
+                         [["fill", "3", "--to", "2000", "--no-sell"], ["edit", "4", "--qty", "2000"]])
+        with self.assertRaises(ValueError):
+            cf(ab, {"kind": "more_filled"})
+
     def test_missing_numbers_are_refused(self):
         row = {"n": 1, "side": "sell", "filled": 0}
         for act in ({"kind": "part"}, {"kind": "price"}, {"kind": "no_reprice"}):
