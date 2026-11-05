@@ -49,6 +49,9 @@
   .history { padding: 6px 12px 0; display: grid; gap: 2px; }
   .past { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
   .past .mark { font-weight: 700; }
+  .past .made { color: var(--buy); font-variant-numeric: tabular-nums; }
+  .est { margin-top: 6px; font-size: 13px; font-weight: 650; color: var(--buy); font-variant-numeric: tabular-nums; }
+  .est.neg, .past .made.neg { color: var(--abort); }
 
   .name { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; }
   .name strong { font-size: 15px; font-weight: 650; }
@@ -150,6 +153,7 @@ const num = (k, v, cls = '', was = null) => {
   return d;
 };
 const change = (r, what) => (r.changes || []).find((c) => c.what === what);
+const short = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}m` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
 
 function entry(r) {
   const e = h('div', 'entry');
@@ -175,6 +179,10 @@ function entry(r) {
   }
   if (r.then_sell != null) nums.append(num('Then sell at', r.then_sell, 'sellto'));
   e.append(nums);
+  if (r.est && !r.est.made) {
+    const v = r.est.value;
+    e.append(h('div', 'est' + (v < 0 ? ' neg' : ''), `Estimated profit ${v < 0 ? '−' : '+'}${short(Math.abs(v))}`));
+  }
 
   if (r.grind) {
     const g = h('div', 'pre', `→ grind into ${fmt.format(r.grind.n)} ${r.grind.into} `);
@@ -220,6 +228,8 @@ function past(r) {
   p.append(h('span', 'mark', done ? '✓' : '✕'),
            h('span', null, `${done ? 'Finished' : 'Closed'}: ${r.side === 'sell' ? 'sell' : 'buy'} ${fmt.format(r.filled)}/${fmt.format(r.of)} ${r.item}` +
              (done ? ' — collect it' : '')));
+  if (r.est && r.est.made) p.append(h('b', 'made' + (r.est.value < 0 ? ' neg' : ''),
+    ` ${r.est.value < 0 ? '−' : '+'}${short(Math.abs(r.est.value))}`));
   return p;
 }
 

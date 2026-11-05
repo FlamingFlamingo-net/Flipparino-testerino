@@ -586,3 +586,25 @@ class ConsoleTests(unittest.TestCase):
         self.assertEqual(na({"mode": "at", "value": "07:00"}), ["--next", "07:00"])
         self.assertEqual(na({"mode": "away", "value": "3"}), ["--away", "3"])
         self.assertEqual(na({"mode": "hours", "value": "2"})[0], "--next")
+
+
+class EstimateTests(LedgerCase):
+    num = FillTests.num
+
+    def test_cards_show_estimated_and_made_profit(self):
+        self.plan()
+        s = desk.load_state()
+        rows = desk.plan_rows(s, s["plans"][-1])
+        buys = [r for r in rows if r.get("side") == "buy" and r["verb"] == "BUY"]
+        self.assertTrue(buys and all(r.get("est") and not r["est"]["made"] for r in buys))
+        n, o = self.num("Bones")
+        self.assertEqual(desk.estimate(s, o)["value"], round(o["est_profit"]))
+        self.fill(n)                       # bought -> auto-listed sell
+        s = desk.load_state()
+        sell = next(x for x in s["orders"] if x["side"] == "sell" and x["name"] == "Bones")
+        tax = rm.ge_tax(sell["price"], RATE, "Bones")
+        self.assertEqual(desk.estimate(s, sell)["value"], round((sell["price"] - tax - o["price"]) * sell["qty"]))
+        desk.apply_fill(s, sell, sell["qty"], sell["price"])
+        made = desk.estimate(s, sell)
+        self.assertTrue(made["made"])
+        self.assertEqual(made["value"], round(s["realized"][-1]["profit"]))

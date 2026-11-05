@@ -753,11 +753,40 @@ def plan_rows(s, plan) -> list[dict]:
         row["filled"] = filled(o)
         row["of"] = o["qty"]
         row["state"] = o["status"]
+        est = estimate(s, o, None, row.get("price"))
+        if est:
+            row["est"] = est
         if row.get("qty") is not None and row.get("price") is not None:
             row["side"] = o["side"]
             row["ge_total"] = rm.ge_screen_total(o["side"], row["qty"], row["price"], s["cfg"]["tax_rate"], o["name"])
         rows.append(row)
     return rows
+
+
+def estimate(s, o, qty=None, price=None):
+    """Estimated profit for an offer card: buys use the plan's estimate (or then-sell minus tax and
+    cost), sells use the held cost. Finished sells show what was actually made. None = no estimate."""
+    if o.get("strategy") == "machine":
+        return None
+    if o["side"] == "sell" and o["status"] == "done":
+        made = [x["profit"] for x in s["realized"] if x.get("order") == o["id"]]
+        return {"value": round(sum(made)), "made": True} if made else None
+    qty = remaining(o) if qty is None else qty
+    price = o["price"] if price is None else price
+    rate = s["cfg"]["tax_rate"]
+    if o["side"] == "buy":
+        if o.get("est_profit") is not None and price == o["price"]:
+            v = o["est_profit"] * (qty + filled(o)) / o["qty"] if o["qty"] else o["est_profit"]
+        elif o.get("target_sell"):
+            v = (o["target_sell"] - rm.ge_tax(o["target_sell"], rate, o["name"]) - price) * (qty + filled(o))
+        else:
+            return None
+        return {"value": round(v), "made": False}
+    hold = s["holdings"].get(str(o["item_id"]), {})
+    if not hold.get("qty"):
+        return None
+    cost_each = hold["cost"] / hold["qty"]
+    return {"value": round((price - rm.ge_tax(price, rate, o["name"]) - cost_each) * qty), "made": False}
 
 
 BOARD = "latest.html"  # stable file for the Hermes side panel
@@ -814,6 +843,7 @@ def write_widget(s, plan, live: bool = False) -> Path:
                 rows.append({"n": "+", "item": o["name"], "slot": o.get("slot"), "verb": o["side"].upper(),
                              "qty": remaining(o), "price": o["price"], "filled": filled(o), "of": o["qty"],
                              "state": o["status"], "side": o["side"], "note": "listed since the plan",
+                             **({"est": e} if (e := estimate(s, o)) else {}),
                              "ge_total": rm.ge_screen_total(o["side"], remaining(o), o["price"],
                                                             s["cfg"]["tax_rate"], o["name"])})
         for r_ in rows:  # finished offers: the plan's instruction no longer applies
