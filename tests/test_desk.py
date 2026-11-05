@@ -522,6 +522,25 @@ class MachineDeskTests(LedgerCase):
         w = desk.machine_week(s, self.clock)
         self.assertEqual(desk.project_loaded(s, w)["alch"]["qty"], 10_000 - 50 * 15)
 
+    def test_reserve_kept_in_bank_after_top_up(self):
+        # User: after topping up, keep 10k of the alch input, 100k nature runes and 1k divine charges in the bank.
+        self.plan()
+        self.run_cmd(desk.cmd_machines, refresh=False, setup=None, pick=None,
+                     loaded=['alch="Speedy whirligig shell=10000@2026-10-27T18:00"'],
+                     bank=['alch="Speedy whirligig shell=5200"', 'supply="Nature rune=92350"',
+                           'supply="Divine charge=902"'],
+                     reserve=["alch=10000", "nature=100k", "charges=1000"])
+        s = desk.load_state()
+        w = s["machines"]["week"]
+        # input: 8,400 top-up (10,000 cap - 1,600 still inside) + 10,000 reserve - 5,200 in the bank
+        self.assertEqual(desk.machine_left(s, w, "Speedy whirligig shell"), 13_200)
+        use = desk.supply_use(s)
+        self.assertEqual(use["Nature rune"], 25 * 2 * 168)  # 1 rune per alch, 2 alchemisers
+        # supplies: a week's use + reserve - bank, nearest hundred
+        self.assertEqual(desk.machine_left(s, w, "Nature rune"), round((8_400 + 100_000 - 92_350) / 100) * 100)
+        self.assertEqual(desk.machine_left(s, w, "Divine charge"), round((use["Divine charge"] + 1_000 - 902) / 100) * 100)
+        self.assertEqual({x["item"] for x in w["targets"] if x["kind"] == desk.SUPPLY}, {"Nature rune", "Divine charge"})
+
     def test_machine_items_not_flipped(self):
         self.plan()
         s = desk.load_state()

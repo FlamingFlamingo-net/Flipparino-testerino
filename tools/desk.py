@@ -135,6 +135,7 @@ def machine_week(s, t, force=False) -> dict:
         w = {"refill": refill, "made": t.isoformat(), "targets": mc.shopping_list(rep, m["setup"]),
              "bought": {}, "spent": 0, "report": mc.render(rep)}
         m["week"] = w
+    ensure_supplies(s, w)
     return w
 
 
@@ -142,22 +143,51 @@ def machine_cap(s, kind) -> int:
     return mc.MACHINES[kind]["cap"] * machine_state(s)["setup"].get(kind, 1)
 
 
+SUPPLY = "supply"  # machine running supplies (nature runes, divine charges), bought like inputs
+
+
+def supply_use(s) -> dict:
+    """Weekly use of the running supplies for the built machines: 1 nature rune per alch, and
+    divine charges (3,000 machine charge each) for every machine's charge per hour."""
+    setup = machine_state(s)["setup"]
+    nat = mc.MACHINES["alch"]["per_h"] * setup.get("alch", 0) * mc.WEEK_H
+    charge = sum(mc.MACHINES[k]["mc_h"] * n for k, n in setup.items() if n and k in mc.MACHINES) * mc.WEEK_H
+    return {"Nature rune": nat, mc.DC: math.ceil(charge / 3000)}
+
+
+def ensure_supplies(s, w) -> None:
+    """Put the running supplies on the week's list once the user has set a reserve for them."""
+    res = machine_state(s).get("reserve", {})
+    names = {"Nature rune": "Alchemiser mk. II", mc.DC: "Generator"}
+    for item, use in supply_use(s).items():
+        if item in res and not any(x["item"] == item for x in w["targets"]):
+            w["targets"].append({"machine": names[item], "kind": SUPPLY, "item": item, "qty": use,
+                                 "buy_at": None, "timing": None, "p10": None})
+
+
 def machine_left(s, w, name) -> int:
-    """Still to buy so the next Tuesday load fills the machines to the brim (the user keeps them
-    capped so a late restock never leaves them idle). Need = capacity - what will still be inside at
-    the refill - what's already in the bank for them - what we've bought this week. Whole hundreds."""
+    """Still to buy for the next Tuesday load, so that AFTER the top-up the bank still holds the
+    user's reserve. Inputs: top-up (capacity - what's still inside at the refill) + reserve - bank -
+    bought. Supplies: a week's use + reserve - bank - bought. Bank = what was left after the last
+    top-up. Rounded to the nearest hundred."""
     x = next((x for x in w["targets"] if x["item"] == name), None)
     if not x:
         return 0
     kind = x["kind"]
-    inside = project_loaded(s, w).get(kind)
-    if inside is None:  # nothing recorded: plan the week's usage
-        need = x["qty"]
+    res = machine_state(s).get("reserve", {})
+    if kind == SUPPLY:
+        need = x["qty"] + res.get(name, 0)
+        need -= w.get("bank", {}).get(SUPPLY, {}).get(name, 0) + w["bought"].get(name, 0)
     else:
-        need = machine_cap(s, kind) - inside["at_refill"]
-    need -= sum(w.get("bank", {}).get(kind, {}).values()) + w["bought"].get(name, 0)
+        inside = project_loaded(s, w).get(kind)
+        if inside is None:  # nothing recorded: plan the week's usage
+            need = x["qty"]
+        else:
+            need = machine_cap(s, kind) - inside["at_refill"]
+        need += res.get(kind, 0)
+        need -= sum(w.get("bank", {}).get(kind, {}).values()) + w["bought"].get(name, 0)
     need = max(0, need)
-    return need // 100 * 100 if need >= 100 else need
+    return round(need / 100) * 100 if need >= 100 else need
 
 
 def project_loaded(s, w) -> dict:
@@ -1151,6 +1181,11 @@ def cmd_machines(a):
         name, q = rest.rsplit("=", 1)
         at = dt.datetime.fromisoformat(when).astimezone() if when else now()
         m.setdefault("loaded", {})[kind] = {"item": name, "qty": gp_arg(q), "at": at.isoformat()}
+    for spec in getattr(a, "reserve", None) or []:  # keep this much in the bank AFTER each top-up: --reserve alch=10000
+        kind, q = spec.split("=", 1)
+        kind = {"nature": "Nature rune", "charges": mc.DC}.get(kind, kind)
+        m.setdefault("reserve", {})[kind] = gp_arg(q)
+    ensure_supplies(s, w)
     for spec in a.bank or []:  # held in the bank for the next load: --bank disasm="Yak-hide=1626"
         kind, rest = spec.split("=", 1)
         name, q = rest.strip('"').rsplit("=", 1)
@@ -1175,11 +1210,18 @@ def cmd_machines(a):
           + ", ".join(f"{k}× {mc.MACHINES[x]['name']}" for x, k in m["setup"].items() if k) + ")")
     for x in w["targets"]:
         tm = x.get("timing")
-        print(f"- {x['qty']:,} {x['item']} for the {x['machine']} @ about {x['buy_at']:,}"
+        what = (f"{x['item']} (a week's use is {x['qty']:,}) for the {x['machine']}" if x["kind"] == SUPPLY
+                else f"{x['qty']:,} {x['item']} for the {x['machine']} @ about {x['buy_at']:,}")
+        print(f"- {what}"
               + (f" · usually cheapest {(tm['day'] + ' ' + tm['hours']).strip()}" if tm else "")
               + f" · bought {w['bought'].get(x['item'], 0):,} · **still to buy {machine_left(s, w, x['item']):,}**")
     for kind, items in w.get("bank", {}).items():
-        print(f"- In the bank for the {mc.MACHINES[kind]['name']}: " + ", ".join(f"{q:,} {n}" for n, q in items.items()))
+        where = "machine supplies" if kind == SUPPLY else f"the {mc.MACHINES[kind]['name']}"
+        print(f"- In the bank for {where}: " + ", ".join(f"{q:,} {n}" for n, q in items.items()))
+    if m.get("reserve"):
+        print("- Kept in the bank after each top-up: " + ", ".join(
+            f"{q:,} {'whatever the ' + mc.MACHINES[k]['name'] + ' uses' if k in mc.MACHINES else k}"
+            for k, q in m["reserve"].items()))
     for kind, p in project_loaded(s, w).items():
         name = mc.MACHINES[kind]["name"]
         print(f"- Inside the {name}(s): {p['qty']:,} {p['item']}, empty by "
@@ -1336,6 +1378,8 @@ def main():
                    help='inside the machines, e.g. --loaded alch="Water battlestaff=10000@2026-10-27T18:00"')
     p.add_argument("--bank", action="append", help='in the bank for the next load, e.g. --bank disasm="Yak-hide=1626"')
     p.add_argument("--pick", action="append", help='choose the week\'s item, e.g. --pick alch="Water battlestaff"')
+    p.add_argument("--reserve", action="append",
+                   help="keep this much in the bank after each top-up, e.g. --reserve alch=10000 / nature=100k / charges=1000")
     p.set_defaults(fn=cmd_machines)
     p = sub.add_parser("deposit"); p.add_argument("amount", type=gp_arg); p.add_argument("--note")
     p.set_defaults(fn=cmd_deposit)
