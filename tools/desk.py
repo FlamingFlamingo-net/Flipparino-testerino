@@ -166,26 +166,30 @@ def ensure_supplies(s, w) -> None:
 
 
 def machine_left(s, w, name) -> int:
-    """Still to buy for the next Tuesday load, so that AFTER the top-up the bank still holds the
-    user's reserve. Inputs: top-up (capacity - what's still inside at the refill) + reserve - bank -
-    bought. Supplies: a week's use + reserve - bank - bought. Bank = what was left after the last
-    top-up. Rounded to the nearest hundred."""
+    """Still to buy for the next Tuesday load. With a stock target (the user's amount to HAVE when
+    loading the machines): target - stock left after the last load - bought this week. Without one:
+    capacity - what's still inside at the refill - bank - bought (keeps the machines capped).
+    Whole hundreds: up for a target, so it's reached; otherwise to the nearest."""
     x = next((x for x in w["targets"] if x["item"] == name), None)
     if not x:
         return 0
     kind = x["kind"]
     res = machine_state(s).get("reserve", {})
-    if kind == SUPPLY:
-        need = x["qty"] + res.get(name, 0)
-        need -= w.get("bank", {}).get(SUPPLY, {}).get(name, 0) + w["bought"].get(name, 0)
+    target = res.get(name if kind == SUPPLY else kind)
+    bank = w.get("bank", {}).get(kind, {})
+    have = bank.get(name, 0) if kind == SUPPLY else sum(bank.values())
+    if target is not None:  # round UP so the stock reaches the target
+        need = max(0, target - have - w["bought"].get(name, 0))
+        return math.ceil(need / 100) * 100 if need >= 100 else need
+    elif kind == SUPPLY:
+        return 0
     else:
         inside = project_loaded(s, w).get(kind)
         if inside is None:  # nothing recorded: plan the week's usage
             need = x["qty"]
         else:
             need = machine_cap(s, kind) - inside["at_refill"]
-        need += res.get(kind, 0)
-        need -= sum(w.get("bank", {}).get(kind, {}).values()) + w["bought"].get(name, 0)
+        need -= have + w["bought"].get(name, 0)
     need = max(0, need)
     return round(need / 100) * 100 if need >= 100 else need
 
@@ -1181,7 +1185,7 @@ def cmd_machines(a):
         name, q = rest.rsplit("=", 1)
         at = dt.datetime.fromisoformat(when).astimezone() if when else now()
         m.setdefault("loaded", {})[kind] = {"item": name, "qty": gp_arg(q), "at": at.isoformat()}
-    for spec in getattr(a, "reserve", None) or []:  # keep this much in the bank AFTER each top-up: --reserve alch=10000
+    for spec in getattr(a, "reserve", None) or []:  # stock to HAVE when loading the machines: --reserve alch=10000
         kind, q = spec.split("=", 1)
         kind = {"nature": "Nature rune", "charges": mc.DC}.get(kind, kind)
         m.setdefault("reserve", {})[kind] = gp_arg(q)
@@ -1219,7 +1223,7 @@ def cmd_machines(a):
         where = "machine supplies" if kind == SUPPLY else f"the {mc.MACHINES[kind]['name']}"
         print(f"- In the bank for {where}: " + ", ".join(f"{q:,} {n}" for n, q in items.items()))
     if m.get("reserve"):
-        print("- Kept in the bank after each top-up: " + ", ".join(
+        print("- Stock to have when you load the machines: " + ", ".join(
             f"{q:,} {'whatever the ' + mc.MACHINES[k]['name'] + ' uses' if k in mc.MACHINES else k}"
             for k, q in m["reserve"].items()))
     for kind, p in project_loaded(s, w).items():
@@ -1379,7 +1383,7 @@ def main():
     p.add_argument("--bank", action="append", help='in the bank for the next load, e.g. --bank disasm="Yak-hide=1626"')
     p.add_argument("--pick", action="append", help='choose the week\'s item, e.g. --pick alch="Water battlestaff"')
     p.add_argument("--reserve", action="append",
-                   help="keep this much in the bank after each top-up, e.g. --reserve alch=10000 / nature=100k / charges=1000")
+                   help="stock to have when loading the machines, e.g. --reserve alch=10000 / nature=100k / charges=1000")
     p.set_defaults(fn=cmd_machines)
     p = sub.add_parser("deposit"); p.add_argument("amount", type=gp_arg); p.add_argument("--note")
     p.set_defaults(fn=cmd_deposit)
