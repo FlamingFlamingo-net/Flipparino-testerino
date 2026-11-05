@@ -162,6 +162,10 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-cache")  # always load the latest page files after an update
+        super().end_headers()
+
     def send_json(self, data, code=200):
         body = json.dumps(data, default=str).encode()
         self.send_response(code)

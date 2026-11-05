@@ -139,23 +139,31 @@ function entry(r, open, card) {
   name.firstChild.title = r.item;
   body.push(h('div', 'ge-item', icon, name));
 
-  const prices = h('div', 'ge-prices');
+  // two zones: BUY on the left, SELL on the right, each only when it applies
+  const zones = h('div', 'ge-zones');
   const cp = (r.changes || []).find((c) => c.what === 'price');
-  if (r.verb === 'CHANGE') {
-    prices.append(h('span', 'ge-price rp', n0(r.price)));
-    if (r.was_price != null) {
-      const d = r.price - r.was_price;
-      prices.append(h('span', 'ge-was', n0(r.was_price)), h('span', 'ge-delta', `${d < 0 ? '−' : '+'}${n0(Math.abs(d))} each`));
-    }
-  } else if (r.price != null) {
-    prices.append(h('span', 'ge-price', n0(r.price)));
-    if (cp) prices.append(h('span', 'ge-was', n0(cp.from)));
+  const zone = (side, price, opts = {}) => {
+    const z = h('div', `ge-zone ${side}` + (opts.rp ? ' rp' : '') + (opts.next ? ' next' : ''));
+    z.append(h('span', 'zl', side === 'buy' ? 'BUY' : 'SELL'), h('span', 'zp', n0(price)));
+    const sub = h('div', 'zs');
+    if (opts.rp && r.was_price != null) {
+      const d = price - r.was_price;
+      sub.append(h('s', null, n0(r.was_price)), ' ', h('b', 'zd', `${d < 0 ? '−' : '+'}${n0(Math.abs(d))} each`));
+    } else if (opts.was != null) sub.append(h('s', null, n0(opts.was)));
+    if (opts.total != null) sub.append(h('span', null, `GE total ${n0(opts.total)}`));
+    if (opts.next) sub.append(h('span', null, 'once bought'));
+    if (sub.childNodes.length) z.append(sub);
+    z.style.gridColumn = side === 'buy' ? '1' : '2';
+    return z;
+  };
+  const showTotal = ['BUY', 'SELL', 'CHANGE'].includes(r.verb) ? r.ge_total : null;
+  if (r.price != null) {
+    zones.append(zone(r.side, r.price, { rp: r.verb === 'CHANGE', was: cp ? cp.from : null, total: showTotal }));
   }
-  if (r.then_sell != null) prices.append(h('span', 'ge-then', 'then sell ', h('b', null, n0(r.then_sell))));
-  body.push(prices);
+  if (r.side === 'buy' && r.then_sell != null) zones.append(zone('sell', r.then_sell, { next: true }));
+  body.push(zones);
 
   const meta = h('div', 'ge-meta');
-  if (r.ge_total != null && ['BUY', 'SELL', 'CHANGE'].includes(r.verb)) meta.append(h('span', null, 'GE total ', h('b', null, n0(r.ge_total))));
   if (r.est && !r.est.made) meta.append(h('span', 'ge-est' + (r.est.value < 0 ? ' neg' : ''), `Est. ${short(r.est.value)}`));
   if (r.trait) meta.append(h('span', null, r.trait));
   if (meta.childNodes.length) body.push(meta);

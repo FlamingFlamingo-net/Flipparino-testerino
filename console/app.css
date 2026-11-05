@@ -64,7 +64,7 @@ body {
 .ge-badge.chg { background: var(--ge-change); }
 .ge-badge.lock { background: #6f6450; color: var(--ge-text); }
 
-.ge-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px 8px 7px; overflow: auto; }
+.ge-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 3px; padding: 4px 8px 5px; overflow: auto; }
 
 /* item row: icon with yellow qty, like the game */
 .ge-item { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; align-items: center; }
@@ -79,7 +79,19 @@ body {
 .ge-copy { all: unset; cursor: pointer; color: var(--ge-muted); font-size: 11px; margin-left: 4px; }
 .ge-copy:hover, .ge-copy:focus-visible { color: var(--ge-gold); }
 
-.ge-prices { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; }
+.ge-body > * { flex-shrink: 0; }  /* never squash the bar or zones; the card scrolls instead */
+.ge-zones { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.ge-zone { border-radius: 6px; padding: 3px 9px 4px; color: #fff; min-width: 0;
+           display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.ge-zone.buy { background: #16a34a; }
+.ge-zone.sell { background: #2563eb; }
+.ge-zone.rp { background: #9333ea; box-shadow: inset 0 0 0 2px #e9d5ff; }
+.ge-zone.next { opacity: .9; }
+.ge-zone .zl { font-size: 15px; font-weight: 800; letter-spacing: .06em; }
+.ge-zone .zp { font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+.ge-zone .zs { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0 8px; font-size: 11px; color: rgba(255,255,255,.85); }
+.ge-zone .zs s { color: rgba(255,255,255,.7); }
+.ge-zone .zd { background: rgba(0,0,0,.3); border-radius: 3px; padding: 0 4px; }
 .ge-price { font-size: 17px; font-weight: 700; color: var(--ge-yellow); font-variant-numeric: tabular-nums; text-shadow: 1px 1px 0 #000; }
 .ge-price.rp { color: var(--ge-purple); }
 .ge-was { color: var(--ge-muted); text-decoration: line-through; font-size: 12px; }
@@ -110,8 +122,8 @@ body {
 .ge-report { margin-top: auto; padding-top: 5px; border-top: 1px dashed var(--ge-line); display: grid; gap: 4px; }
 .ge-report .lbl { font-size: 10.5px; color: var(--ge-muted); text-transform: uppercase; letter-spacing: .05em; }
 .ge-chips { display: flex; flex-wrap: wrap; gap: 3px; }
-.ge-chip { all: unset; cursor: pointer; font-size: 11.5px; padding: 2px 7px; border-radius: 3px;
-           background: #1e1710; border: 1px solid var(--ge-line); color: var(--ge-text); }
+.ge-chip { all: unset; cursor: pointer; font-size: 11px; padding: 1px 6px; border-radius: 3px;
+           background: var(--ge-well); border: 1px solid var(--ge-line); color: var(--ge-text); }
 .ge-chip:hover { border-color: var(--ge-gold-dim); }
 .ge-chip[aria-pressed="true"] { background: var(--ge-gold); border-color: var(--ge-gold); color: #1b140d; font-weight: 700; }
 .ge-chip:focus-visible, .ge-btn:focus-visible, .ge-select:focus-visible, .ge-num:focus-visible { outline: 2px solid var(--ge-yellow); outline-offset: 1px; }
