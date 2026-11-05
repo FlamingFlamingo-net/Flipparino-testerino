@@ -1,0 +1,9 @@
+{
+  "name": "RS3 Desk",
+  "short_name": "RS3 Desk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#18120c",
+  "theme_color": "#2b2117",
+  "icons": [{ "src": "icon.png", "sizes": "256x256", "type": "image/png" }]
+}

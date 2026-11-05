@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RS3 Desk</title>
+<link rel="icon" href="icon.png" sizes="256x256">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css">
+<link rel="stylesheet" href="app.css">
+<script>if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.classList.add("dark");</script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<header class="top">
+  <h1>RS3 Desk</h1>
+  <p id="summary" class="muted" aria-live="polite">Loading…</p>
+  <nav class="actions">
+    <button class="btn" data-variant="outline" type="button" id="btn-totals">Totals</button>
+    <button class="btn" data-variant="outline" type="button" id="btn-machines">Machines</button>
+  </nav>
+</header>
+
+<main class="layout">
+  <section class="board" aria-label="Current plan">
+    <iframe id="board" src="/board" title="Current plan board"></iframe>
+  </section>
+
+  <section class="report" aria-labelledby="report-h">
+    <form id="report">
+      <h2 id="report-h">What happened since the last plan?</h2>
+      <p class="muted small">Only change the offers that differ. Anything left on "No change" stays in the GE at the planned price.</p>
+      <ol id="rows" class="rows"></ol>
+
+      <fieldset class="when">
+        <legend>Next check-in</legend>
+        <label><input type="radio" name="mode" value="normal" checked> Normal</label>
+        <label><input type="radio" name="mode" value="watch"> Watching (every few minutes)</label>
+        <label><input type="radio" name="mode" value="hours"> Back in
+          <input class="input num" type="number" name="hours" min="1" max="36" step="0.5" value="2" aria-label="hours"> h</label>
+        <label><input type="radio" name="mode" value="at"> Back at
+          <input class="input num" type="time" name="at" value="07:00" aria-label="time"></label>
+        <label><input type="radio" name="mode" value="away"> Away for
+          <input class="input num" type="number" name="days" min="1" max="14" value="2" aria-label="days"> days</label>
+      </fieldset>
+
+      <div class="go">
+        <button class="btn" type="submit" id="btn-refresh">Save &amp; refresh</button>
+        <button class="btn" data-variant="outline" type="button" id="btn-save">Save only</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <details id="out-wrap" hidden>
+        <summary>Plan text and log</summary>
+        <pre id="out"></pre>
+      </details>
+    </form>
+  </section>
+</main>
+
+<dialog id="dlg" class="dialog" aria-labelledby="dlg-h">
+  <div>
+    <header><h2 id="dlg-h">Totals</h2></header>
+    <section><pre id="dlg-body"></pre>
+      <form id="bank" class="bank" hidden>
+        <h3>Record machine leftovers (in the bank)</h3>
+        <label class="label">Machine
+          <select class="select" name="kind"><option value="alch">Alchemiser mk. II</option><option value="disasm">Auto disassembler mk. II</option></select></label>
+        <label class="label">Item <input class="input" name="item" required placeholder="Water battlestaff"></label>
+        <label class="label">Quantity <input class="input" name="qty" type="number" min="0" required></label>
+        <button class="btn" type="submit">Save</button>
+      </form>
+    </section>
+    <footer><button class="btn" data-variant="outline" type="button" id="dlg-close">Close</button></footer>
+  </div>
+</dialog>
+
+<template id="row-tpl">
+  <li class="row">
+    <div class="head">
+      <span class="slot"></span>
+      <span class="side"></span>
+      <strong class="itm"></strong>
+      <span class="det muted"></span>
+    </div>
+    <div class="ctrl">
+      <label class="sr" data-for="kind">What happened</label>
+      <select class="select kind"></select>
+      <label class="extra qty-wrap" hidden><span class="lbl">Filled so far</span> <input class="input num qty" type="number" min="0"></label>
+      <label class="extra price-wrap" hidden><span class="lbl">Price each</span> <input class="input num price" type="number" min="1"></label>
+      <label class="extra sell-wrap" hidden><span class="lbl">Sold at</span> <input class="input num sell" type="number" min="1"></label>
+    </div>
+  </li>
+</template>
+</body>
+</html>

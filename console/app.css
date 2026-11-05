@@ -1,0 +1,52 @@
+:root {
+  --buy: #15803d; --sell: #1d4ed8; --change: #9333ea;
+  --line: var(--border, #e3e6ea);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; flex-direction: column; font: 14px/1.4 system-ui, "Segoe UI", sans-serif; }
+
+.top { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.top h1 { margin: 0; font-size: 18px; }
+.top .actions { margin-left: auto; display: flex; gap: 8px; }
+.muted { color: var(--muted-foreground, #6b7280); margin: 0; }
+.small { font-size: 12px; }
+
+.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 1fr); }
+.board { border-right: 1px solid var(--line); min-height: 0; }
+.board iframe { width: 100%; height: 100%; border: 0; display: block; }
+.report { overflow: auto; padding: 14px 16px 24px; }
+.report h2 { margin: 0 0 4px; font-size: 16px; }
+
+.rows { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+.row { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 6px; }
+.row.changed { border-color: var(--change); box-shadow: 0 0 0 1px var(--change); }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.slot { font-weight: 700; font-size: 12px; }
+.side { font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 5px; color: #fff; }
+.side.buy { background: var(--buy); }
+.side.sell { background: var(--sell); }
+.det { font-size: 12px; }
+.itm { font-size: 15px; }
+.ctrl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ctrl .select { min-width: 270px; width: auto; }
+.extra { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.num { width: 120px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.when { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; display: grid; gap: 6px; }
+.when legend { font-weight: 600; padding: 0 4px; }
+.when label { display: flex; align-items: center; gap: 6px; }
+.when .num { width: 90px; }
+.go { display: flex; gap: 8px; margin-top: 12px; }
+.status { min-height: 1.4em; margin: 8px 0; font-weight: 600; }
+.status.err { color: #b91c1c; }
+pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; margin: 0; }
+#out { max-height: 50vh; overflow: auto; }
+
+dialog > div { max-width: min(760px, 92vw) !important; }
+#dlg-body { max-height: 55vh; overflow: auto; }
+.bank { display: grid; gap: 8px; margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.bank h3 { margin: 0; font-size: 14px; }
+
+:focus-visible { outline: 2px solid var(--sell); outline-offset: 2px; }

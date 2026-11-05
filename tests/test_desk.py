@@ -528,3 +528,43 @@ class MachineDeskTests(LedgerCase):
         flips = [o for o in s["orders"] if o["name"] == "Speedy whirligig shell" and o.get("strategy") != "machine"]
         self.assertFalse(flips)
 
+
+
+class ConsoleTests(unittest.TestCase):
+    """The desk console turns clicks into the same desk.py commands used in chat."""
+
+    def setUp(self):
+        import console
+        self.c = console
+
+    def test_actions_map_to_desk_commands(self):
+        buy = {"n": 3, "side": "buy", "filled": 0, "was_price": 100}
+        cf = self.c.commands_for
+        self.assertEqual(cf(buy, {"kind": "same"}), [])
+        self.assertEqual(cf(buy, {"kind": "done"}), [["fill", "3"]])
+        self.assertEqual(cf(buy, {"kind": "done", "price": 95}), [["fill", "3", "--price", "95"]])
+        self.assertEqual(cf(buy, {"kind": "unlisted"}), [["fill", "3", "--no-sell"]])
+        self.assertEqual(cf(buy, {"kind": "done_sold", "sell_price": 120}),
+                         [["fill", "3"], ["@fill-last", "--price", "120"]])
+        self.assertEqual(cf(buy, {"kind": "part", "qty": 400}), [["fill", "3", "--to", "400"]])
+        self.assertEqual(cf(buy, {"kind": "aborted", "qty": 0}), [["cancel", "3"]])
+        self.assertEqual(cf(buy, {"kind": "aborted", "qty": 250}),
+                         [["fill", "3", "--to", "250", "--close", "--no-sell"]])
+        self.assertEqual(cf(buy, {"kind": "not_placed"}), [["cancel", "3"]])
+        self.assertEqual(cf(buy, {"kind": "price", "price": 101}), [["edit", "3", "--price", "101"]])
+        self.assertEqual(cf(buy, {"kind": "no_reprice"}), [["edit", "3", "--price", "100"]])
+        self.assertEqual(cf(buy, {"kind": "keep"}), [["edit", "3", "--pin"]])
+
+    def test_missing_numbers_are_refused(self):
+        row = {"n": 1, "side": "sell", "filled": 0}
+        for act in ({"kind": "part"}, {"kind": "price"}, {"kind": "no_reprice"}):
+            with self.assertRaises(ValueError):
+                self.c.commands_for(row, act)
+
+    def test_next_check_in_flags(self):
+        na = self.c.next_arg
+        self.assertEqual(na({"mode": "normal"}), [])
+        self.assertEqual(na({"mode": "watch"}), ["--next", "0"])
+        self.assertEqual(na({"mode": "at", "value": "07:00"}), ["--next", "07:00"])
+        self.assertEqual(na({"mode": "away", "value": "3"}), ["--away", "3"])
+        self.assertEqual(na({"mode": "hours", "value": "2"})[0], "--next")

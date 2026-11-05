@@ -41,6 +41,14 @@ python tools/desk.py set --capital 200m
 ```
 A Hermes cron job runs `plan` at 07:00 and 18:00 local and posts the plan to chat. More commands: `totals`, `plan --away DAYS`, `plan --review-all`, `edit N --pin`, `block add NAME`, `limit NAME --resets HH:MM`, `watch`. Run `python tools/desk.py -h` for the full list.
 
+### Desk console (no chat needed)
+`tools/console.py` serves a local page at http://127.0.0.1:8766 (localhost only). The left side shows the board; on the right you say what happened to each open offer (bought, sold, part-filled, aborted, never placed, different price, re-price not done, keep), pick your next check-in, and press **Save & refresh**. It runs the same `desk.py` commands as the chat, then the backup. **Totals** and **Machines** (including bank leftovers) are buttons.
+
+```bash
+python tools/console.py            # server only
+pythonw tools/console.py --open    # start if needed and open as an app window (the "RS3 Desk" desktop shortcut)
+```
+
 ### Data and backups
 `ledger/` holds your trading data: `state.json` plus rendered plans and per-write backups. It is **not** in git (see `.gitignore`). After each scheduled plan, `tools/backup.py` copies it to `OneDrive/Backup-anwar/rs3-flipper/`. That copy keeps one snapshot a day for 90 days, so it survives a dead disk. Restore: copy a `state-YYYY-MM-DD.json` back to `ledger/state.json`.
 
