@@ -1,10 +1,28 @@
-// RS3 Desk console: report what happened per open offer, then save and refresh the plan.
+// RS3 Desk console: a Grand Exchange-style 3 x 3 grid. Each slot card shows the plan for that slot
+// and has its own "what happened" buttons; the 9th cell holds the check-in choice and Save & refresh.
 const fmt = new Intl.NumberFormat('en-US');
 const $ = (s, el = document) => el.querySelector(s);
+const SPRITE = (id) => `https://secure.runescape.com/m=itemdb_rs/obj_sprite.gif?id=${id}`;  // the game's own item image
+
 let state = null;
+let busy = false;
+const picks = new Map();   // trade number -> {kind, qty?, price?, sell_price?}
+
+function h(tag, cls, ...kids) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  for (const k of kids.flat()) if (k != null && k !== false) el.append(k instanceof Node ? k : String(k));
+  return el;
+}
+const n0 = (v) => fmt.format(Math.round(v));
+function short(v) {
+  const a = Math.abs(v);
+  const s = a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 1 : 2)}m` : a >= 1e3 ? `${Math.round(a / 1e3)}k` : `${a}`;
+  return (v < 0 ? '−' : '+') + s;
+}
 
 async function api(path, body) {
-  const res = await fetch(path, body === undefined ? {} : {
+  const res = await fetch(path, body === undefined ? { cache: 'no-store' } : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   const data = await res.json();
@@ -12,14 +30,32 @@ async function api(path, body) {
   return data;
 }
 
-function gp(n) {
-  const a = Math.abs(n);
-  const s = a >= 1e6 ? `${(a / 1e6).toFixed(1)}m` : a >= 1e3 ? `${(a / 1e3).toFixed(1)}k` : `${a}`;
-  return (n < 0 ? '−' : '') + s;
-}
+// ---------- report choices per offer
+const LABELS = {
+  done: (r) => (r.side === 'sell' ? 'Sold' : 'Bought'),
+  done_sold: () => 'Bought + sold',
+  unlisted: () => 'Bought, not listed',
+  part: (r) => (r.side === 'sell' ? 'Part sold' : 'Part bought'),
+  aborted: () => 'Aborted',
+  not_placed: () => 'Not placed',
+  price: () => 'Other price',
+  no_reprice: () => 'Re-price not done',
+  keep: () => 'Keep price',
+};
+const TIPS = {
+  done: (r) => (r.side === 'sell' ? 'All sold' : r.machine ? 'All bought' : `All bought and listed at ${n0(r.then_sell || 0)}`),
+  done_sold: () => 'All bought and already sold too',
+  unlisted: () => 'All bought, in your backpack, not listed yet',
+  part: () => 'Partly filled, still in the GE: enter the total so far',
+  aborted: () => 'You aborted it: enter how many had filled',
+  not_placed: () => 'You never placed this offer',
+  price: () => 'It is listed at a different price: enter it',
+  no_reprice: (r) => `You didn't do the re-price: it is still at ${n0(r.was_price)}`,
+  keep: () => 'Keep this price: stop suggesting changes',
+};
 
 function choicesFor(r) {
-  const k = ['same', 'done'];
+  const k = ['done'];
   if (r.side === 'buy' && !r.machine) k.push('done_sold', 'unlisted');
   k.push('part', 'aborted');
   if (['BUY', 'SELL', 'CHANGE'].includes(r.verb)) k.push('not_placed');
@@ -29,155 +65,297 @@ function choicesFor(r) {
   return k;
 }
 
-function label(kind, r) {
-  const L = { ...state.actions };
-  if (r.side === 'sell') { L.done = 'Sold (all)'; L.part = 'Partly sold, still in the GE'; L.aborted = 'Aborted (enter how many sold)'; }
-  else if (r.machine) L.done = 'Bought (all)';
-  else L.done = `Bought, listed at ${fmt.format(r.then_sell || 0)}`;
-  if (kind === 'no_reprice') return `Re-price not done (still at ${fmt.format(r.was_price)})`;
-  return L[kind];
+function reportBox(open, card) {
+  const box = h('div', 'ge-report');
+  box.append(h('span', 'lbl', 'What happened?'));
+  const chips = h('div', 'ge-chips');
+  const extra = h('div', 'ge-extra');
+  extra.hidden = true;
+  const input = h('input', 'ge-num');
+  input.type = 'number'; input.min = '0';
+  const xlabel = h('label', null);
+  const id = `x-${open.n}`;
+  input.id = id; xlabel.htmlFor = id;
+  extra.append(xlabel, input);
+
+  const sync = () => {
+    const p = picks.get(open.n);
+    for (const b of chips.children) b.setAttribute('aria-pressed', String(p?.kind === b.dataset.kind));
+    card.classList.toggle('reported', !!p);
+    const need = p && { part: 'qty', aborted: 'qty', price: 'price', done_sold: 'sell_price' }[p.kind];
+    extra.hidden = !need;
+    if (need) {
+      xlabel.textContent = { qty: open.side === 'sell' ? 'Sold so far' : 'Bought so far', price: 'Listed at', sell_price: 'Sold at' }[need];
+      input.placeholder = need === 'qty' ? n0(open.filled) : need === 'price' ? n0(open.price) : n0(open.then_sell || 0);
+      input.max = need === 'qty' ? String(open.qty) : '';
+      input.value = p[need] ?? '';
+      input.dataset.field = need;
+    }
+    updatePending();
+  };
+  for (const kind of choicesFor(open)) {
+    const b = h('button', 'ge-chip', LABELS[kind](open));
+    b.type = 'button';
+    b.dataset.kind = kind;
+    b.title = TIPS[kind](open);
+    b.addEventListener('click', () => {
+      if (picks.get(open.n)?.kind === kind) picks.delete(open.n);
+      else picks.set(open.n, { n: open.n, kind });
+      sync();
+      if (!extra.hidden) input.focus();
+    });
+    chips.append(b);
+  }
+  input.addEventListener('input', () => {
+    const p = picks.get(open.n);
+    if (!p) return;
+    const v = input.value === '' ? undefined : Number(input.value);
+    p[input.dataset.field] = v;
+  });
+  box.append(chips, extra);
+  queueMicrotask(sync);
+  return box;
+}
+
+// ---------- slot cards
+function entry(r, open, card) {
+  const body = [];
+  const icon = h('div', 'ge-icon');
+  if (r.item_id) {
+    const img = h('img');
+    img.src = SPRITE(r.item_id); img.alt = ''; img.loading = 'lazy';
+    img.addEventListener('error', () => img.remove());
+    icon.append(img);
+  }
+  icon.append(h('span', 'q', n0(r.of ?? r.qty ?? 0)));
+  const copy = h('button', 'ge-copy', '⧉ copy');
+  copy.type = 'button';
+  copy.title = 'Copy the item name for the GE search';
+  copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(r.item); copy.textContent = '✓ copied'; } catch { copy.textContent = 'copy failed'; }
+    setTimeout(() => { copy.textContent = '⧉ copy'; }, 1500);
+  });
+  const name = h('div', 'ge-name', h('strong', null, (r.star ? '★ ' : '') + r.item), h('small', null, `#${r.n}`), copy);
+  name.firstChild.title = r.item;
+  body.push(h('div', 'ge-item', icon, name));
+
+  const prices = h('div', 'ge-prices');
+  const cp = (r.changes || []).find((c) => c.what === 'price');
+  if (r.verb === 'CHANGE') {
+    prices.append(h('span', 'ge-price rp', n0(r.price)));
+    if (r.was_price != null) {
+      const d = r.price - r.was_price;
+      prices.append(h('span', 'ge-was', n0(r.was_price)), h('span', 'ge-delta', `${d < 0 ? '−' : '+'}${n0(Math.abs(d))} each`));
+    }
+  } else if (r.price != null) {
+    prices.append(h('span', 'ge-price', n0(r.price)));
+    if (cp) prices.append(h('span', 'ge-was', n0(cp.from)));
+  }
+  if (r.then_sell != null) prices.append(h('span', 'ge-then', 'then sell ', h('b', null, n0(r.then_sell))));
+  body.push(prices);
+
+  const meta = h('div', 'ge-meta');
+  if (r.ge_total != null && ['BUY', 'SELL', 'CHANGE'].includes(r.verb)) meta.append(h('span', null, 'GE total ', h('b', null, n0(r.ge_total))));
+  if (r.est && !r.est.made) meta.append(h('span', 'ge-est' + (r.est.value < 0 ? ' neg' : ''), `Est. ${short(r.est.value)}`));
+  if (r.trait) meta.append(h('span', null, r.trait));
+  if (meta.childNodes.length) body.push(meta);
+
+  if (r.of) {
+    const bar = h('div', 'ge-bar-wrap' + (r.filled >= r.of ? ' done' : ''));
+    const fill = h('i'); fill.style.width = `${Math.min(100, Math.round((r.filled / r.of) * 100))}%`;
+    bar.append(fill, h('span', null, `${n0(r.filled)} / ${n0(r.of)}`));
+    body.push(bar);
+  }
+
+  if (r.verb === 'CHANGE') {
+    body.push(h('div', 'ge-note rp', `RE-PRICE: abort and re-list ${n0(r.qty)} at ${n0(r.price)}`));
+  } else if (r.verb === 'BUY' || r.verb === 'SELL') {
+    if (r.note && r.note !== 'listed since the plan') body.push(h('div', 'ge-note', r.note));
+  } else if (r.note && r.verb !== 'KEEP') body.push(h('div', 'ge-note', r.note));
+  for (const c of r.changes || []) {
+    if (c.what === 'new') body.push(h('div', 'ge-note chg', c.from ? `New offer here (was ${c.from})` : 'New offer in an empty slot'));
+    if (c.what === 'slot') body.push(h('div', 'ge-note chg', `Moved from slot ${c.from}`));
+    if (c.what === 'qty') body.push(h('div', 'ge-note chg', `Quantity ${n0(c.from)} → ${n0(c.to)}`));
+  }
+  if (open) body.push(reportBox(open, card));
+  return body;
+}
+
+function pastLine(r) {
+  const cancel = (r.changes || []).find((c) => c.what === 'cancel');
+  if (cancel) return h('div', 'ge-note abort', `✕ ABORT the ${r.side} offer for ${r.item} @ ${n0(r.price)}` + (r.filled ? ` and collect the ${n0(r.filled)} that filled` : ''));
+  const done = r.state === 'done';
+  const line = h('div', 'ge-past', `${done ? '✓ Finished' : '✕ Closed'}: ${r.side} ${n0(r.filled)}/${n0(r.of)} ${r.item}${done ? ', collect it' : ''}`);
+  if (r.est && r.est.made) line.append(' ', h('b', r.est.value < 0 ? 'neg' : '', short(r.est.value)));
+  return line;
+}
+
+function slotCard(slot, rows, openByN) {
+  const li = $('#slot-tpl').content.firstElementChild.cloneNode(true);
+  const card = $('.ge-card', li);
+  const live = rows.filter((r) => !r.state || r.state === 'open');
+  const finished = rows.filter((r) => r.state && r.state !== 'open');
+  const main = live.at(-1);
+  const any = main || rows.at(-1);
+  $('.ge-title', li).textContent = any ? `${slot} - ${any.side === 'sell' ? 'Sell' : 'Buy'}` : `Slot ${slot}`;
+  const badges = $('.ge-badges', li);
+  if (main) {
+    const verb = main.verb === 'CHANGE' ? 'RE-PRICE' : main.verb === 'BUY' || main.verb === 'SELL' ? 'NEW' : main.verb;
+    badges.append(h('span', `ge-badge verb-${main.verb}`, verb));
+    if (main.pinned) badges.append(h('span', 'ge-badge lock', '🔒'));
+    if (main.machine) badges.append(h('span', 'ge-badge lock', '⚙ machine'));
+  }
+  if (rows.some((r) => r.changes && r.changes.length)) badges.append(h('span', 'ge-badge chg', 'CHANGE'));
+  if (main?.verb === 'CHANGE') card.classList.add('reprice');
+  else if (rows.some((r) => r.changes && r.changes.length)) card.classList.add('changed');
+  if (!main) card.classList.add('idle');
+
+  const body = $('.ge-body', li);
+  finished.forEach((r) => body.append(pastLine(r)));
+  if (main) body.append(...entry(main, openByN.get(main.num), card));
+  else if (!finished.length) body.append(h('p', 'ge-empty', 'Empty'));
+  return li;
 }
 
 function render() {
-  const s = state;
-  $('#summary').textContent = s.plan
-    ? `Plan ${s.plan} · cash ${gp(s.cash)} · realised P/L ${s.realised >= 0 ? '+' : ''}${gp(s.realised)}`
-    : 'No plan yet';
-  const list = $('#rows');
-  list.replaceChildren();
-  const tpl = $('#row-tpl');
-  for (const r of s.rows) {
-    if (r.n == null) continue;
-    const li = tpl.content.firstElementChild.cloneNode(true);
-    li.dataset.n = r.n;
-    $('.slot', li).textContent = r.slot ? `Slot ${r.slot}` : '—';
-    const side = $('.side', li);
-    side.textContent = r.side.toUpperCase();
-    side.classList.add(r.side);
-    $('.itm', li).textContent = r.item + (r.machine ? ' ⚙' : '') + (r.pinned ? ' 🔒' : '');
-    $('.det', li).textContent = `${fmt.format(r.filled)}/${fmt.format(r.qty)} @ ${fmt.format(r.price)}`
-      + (r.verb === 'CHANGE' && r.was_price ? ` (re-price from ${fmt.format(r.was_price)})` : '')
-      + (r.then_sell ? ` · then sell @ ${fmt.format(r.then_sell)}` : '');
-    const sel = $('.kind', li);
-    const id = `kind-${r.n}`;
-    sel.id = id;
-    $('[data-for="kind"]', li).htmlFor = id;
-    $('[data-for="kind"]', li).textContent = `What happened to ${r.item}`;
-    for (const k of choicesFor(r)) sel.add(new Option(label(k, r), k));
-    $('.price', li).placeholder = fmt.format(r.price);
-    $('.qty', li).max = r.qty;
-    $('.qty', li).placeholder = `${fmt.format(r.filled)}`;
-    $('.sell', li).placeholder = r.then_sell ? fmt.format(r.then_sell) : '';
-    sel.addEventListener('change', () => toggle(li, r));
-    list.append(li);
+  const grid = $('#grid');
+  const keepFocus = document.activeElement?.id;
+  grid.replaceChildren();
+  const b = state.board;
+  const openByN = new Map(state.rows.filter((r) => r.n != null).map((r) => [r.n, r]));
+  if (b) {
+    const t = new Date(b.at);
+    $('#plan-when').textContent = `${b.title} · made ${t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
   }
-  if (!list.children.length) list.append(Object.assign(document.createElement('li'), { className: 'muted', textContent: 'No open offers.' }));
+  const bySlot = new Map();
+  for (const r of b?.rows || []) {
+    const k = r.slot || 0;
+    if (!bySlot.has(k)) bySlot.set(k, []);
+    bySlot.get(k).push(r);
+  }
+  for (let s = 1; s <= 8; s++) grid.append(slotCard(s, bySlot.get(s) || [], openByN));
+  grid.append(panel());
+  const loose = bySlot.get(0) || [];
+  if (loose.length) $('#status').textContent = `Not in a slot: ${loose.map((r) => r.item).join(', ')}`;
+  if (keepFocus && document.getElementById(keepFocus)) document.getElementById(keepFocus).focus();
 }
 
-function toggle(li, r) {
-  const k = $('.kind', li).value;
-  const show = (cls, on, text) => {
-    const w = $(cls, li);
-    w.hidden = !on;
-    if (text) $('.lbl', w).textContent = text;
-  };
-  show('.qty-wrap', k === 'part' || k === 'aborted', r.side === 'sell' ? 'Sold so far' : 'Bought so far');
-  show('.price-wrap', ['done', 'done_sold', 'part', 'aborted', 'price', 'keep'].includes(k),
-    k === 'price' ? 'Listed at' : k === 'keep' ? 'Price (if different)' : 'Price each (if different)');
-  show('.sell-wrap', k === 'done_sold');
-  li.classList.toggle('changed', k !== 'same');
+// ---------- panel (9th cell)
+let panelEl = null;
+let whenState = { mode: 'normal', hours: '2', at: '07:00', days: '2' };
+function panel() {
+  if (panelEl) { fillStats(); return panelEl; }
+  panelEl = $('#panel-tpl').content.firstElementChild.cloneNode(true);
+  const root = panelEl;
+  root.addEventListener('change', (e) => {
+    if (e.target.name === 'mode') whenState.mode = e.target.value;
+    else if (e.target.name in whenState) whenState[e.target.name] = e.target.value;
+  });
+  // typing in a field selects its option
+  for (const [field, mode] of [['hours', 'hours'], ['at', 'at'], ['days', 'away']]) {
+    $(`[name=${field}]`, root).addEventListener('focus', () => {
+      $(`input[name=mode][value=${mode}]`, root).checked = true; whenState.mode = mode;
+    });
+  }
+  $('#btn-refresh', root).addEventListener('click', () => submit(true));
+  $('#btn-save', root).addEventListener('click', () => submit(false));
+  $('#btn-totals', root).addEventListener('click', () => showText('Totals', '/api/totals'));
+  $('#btn-machines', root).addEventListener('click', () => showText('Machines', '/api/machines', true));
+  $('#history', root).addEventListener('change', (e) => {
+    if (e.target.value) showPlan(e.target.value, e.target.selectedOptions[0].textContent);
+    e.target.value = '';
+  });
+  fillStats();
+  return root;
+}
+
+function fillStats() {
+  const root = panelEl;
+  $('#st-cash', root).textContent = short(state.cash).replace('+', '');
+  $('#st-pl', root).textContent = short(state.realised);
+  const hist = $('#history', root);
+  hist.replaceChildren(h('option', null, 'Earlier plans…'));
+  hist.firstChild.value = '';
+  for (const p of state.recent || []) {
+    const o = h('option', null, new Date(p.at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }));
+    o.value = p.id;
+    hist.append(o);
+  }
+  updatePending();
+}
+
+function updatePending() {
+  if (!panelEl) return;
+  $('#st-pending', panelEl).textContent = picks.size ? `${picks.size} slot${picks.size > 1 ? 's' : ''}` : 'none';
+}
+
+function setStatus(msg, err = false) {
+  const el = $('#status', panelEl);
+  el.textContent = msg;
+  el.classList.toggle('err', err);
 }
 
 function collect() {
   const out = [];
-  for (const li of $('#rows').children) {
-    const kind = $('.kind', li)?.value;
-    if (!kind || kind === 'same') continue;
-    const num = (sel) => { const v = $(sel, li).value; return v === '' ? null : Number(v); };
-    const a = { n: Number(li.dataset.n), kind };
-    const qty = num('.qty'), price = num('.price'), sell = num('.sell');
-    if (qty != null) a.qty = qty;
-    if (price != null) a.price = price;
-    if (sell != null) a.sell_price = sell;
-    if ((kind === 'part' || kind === 'aborted') && a.qty == null) throw new Error(`Enter a quantity for ${$('.itm', li).textContent}`);
-    if (kind === 'price' && a.price == null) throw new Error(`Enter the listed price for ${$('.itm', li).textContent}`);
-    out.push(a);
+  for (const p of picks.values()) {
+    const open = state.rows.find((r) => r.n === p.n);
+    const what = open ? open.item : `#${p.n}`;
+    if ((p.kind === 'part' || p.kind === 'aborted') && p.qty == null) throw new Error(`${what}: enter how many filled`);
+    if (p.kind === 'price' && p.price == null) throw new Error(`${what}: enter the price it's listed at`);
+    out.push(p);
   }
   return out;
 }
 
 function when() {
-  const f = $('#report');
-  const mode = f.mode.value;
-  const value = { hours: f.hours.value, at: f.at.value, away: f.days.value }[mode];
-  return { mode, value };
-}
-
-function setStatus(msg, err = false) {
-  const el = $('#status');
-  el.textContent = msg;
-  el.classList.toggle('err', err);
+  const m = whenState.mode;
+  return { mode: m, value: { hours: whenState.hours, at: whenState.at, away: whenState.days }[m] };
 }
 
 async function submit(refresh) {
   let actions;
   try { actions = collect(); } catch (e) { setStatus(e.message, true); return; }
   if (!refresh && !actions.length) { setStatus('Nothing to save.'); return; }
-  const btns = [$('#btn-refresh'), $('#btn-save')];
+  busy = true;
+  const btns = [$('#btn-refresh', panelEl), $('#btn-save', panelEl)];
   btns.forEach((b) => { b.disabled = true; });
-  setStatus(refresh ? 'Saving and building the new plan (about 30–60 s)…' : 'Saving…');
+  setStatus(refresh ? 'Saving and building the new plan (30–60 s)…' : 'Saving…');
   try {
-    const res = await api('/api/report', { actions, refresh, when: when() });
-    $('#out').textContent = [...res.log, res.plan || ''].filter(Boolean).join('\n\n');
-    $('#out-wrap').hidden = false;
-    setStatus(refresh ? 'New plan ready. The board on the left is updated.' : 'Saved.');
+    await api('/api/report', { actions, refresh, when: when() });
+    picks.clear();
     await load();
+    setStatus(refresh ? 'New plan ready.' : 'Saved.');
   } catch (e) {
     setStatus(`Error: ${e.message}`, true);
-    await load();
+    picks.clear();
+    await load().catch(() => {});
   } finally {
+    busy = false;
     btns.forEach((b) => { b.disabled = false; });
   }
 }
 
-function renderHistory() {
-  const pick = $('#board-pick');
-  const keep = pick.value;
-  pick.replaceChildren(new Option('Current board (live)', '/board'));
-  for (const p of state.recent || []) {
-    const t = new Date(p.at);
-    const when = t.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-    pick.add(new Option(`Earlier plan: ${when}`, `/plans/${p.id}`));
-  }
-  pick.value = [...pick.options].some((o) => o.value === keep) ? keep : '/board';
-  showBoard();
-}
-
-function showBoard() {
-  const v = $('#board-pick').value;
-  $('.history').classList.toggle('old', v !== '/board');
-  $('#board').src = `${v}?t=${Date.now()}`;
-}
-
-async function load() {
-  state = await api('/api/state');
-  render();
-  renderHistory();
-}
-
-async function showText(title, path, bank = false) {
+// ---------- dialogs
+function openDialog(title) {
   $('#dlg-h').textContent = title;
+  $('#dlg-body').hidden = false;
   $('#dlg-body').textContent = 'Loading…';
-  $('#bank').hidden = !bank;
+  $('#dlg-frame').hidden = true;
+  $('#bank').hidden = true;
   $('#dlg').showModal();
+}
+async function showText(title, path, bank = false) {
+  openDialog(title);
+  $('#bank').hidden = !bank;
   try { $('#dlg-body').textContent = (await api(path)).text; } catch (e) { $('#dlg-body').textContent = `Error: ${e.message}`; }
 }
-
-$('#report').addEventListener('submit', (e) => { e.preventDefault(); submit(true); });
-$('#btn-save').addEventListener('click', () => submit(false));
-$('#board-pick').addEventListener('change', showBoard);
-$('#btn-totals').addEventListener('click', () => showText('Totals', '/api/totals'));
-$('#btn-machines').addEventListener('click', () => showText('Machines', '/api/machines', true));
+function showPlan(id, label) {
+  openDialog(`Earlier plan: ${label}`);
+  $('#dlg-body').hidden = true;
+  const f = $('#dlg-frame');
+  f.hidden = false;
+  f.src = `/plans/${id}?t=${Date.now()}`;
+}
 $('#dlg-close').addEventListener('click', () => $('#dlg').close());
 $('#bank').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -188,4 +366,19 @@ $('#bank').addEventListener('submit', async (e) => {
   } catch (err) { $('#dlg-body').textContent = `Error: ${err.message}`; }
 });
 
-load().catch((e) => setStatus(`Can't reach the desk server: ${e.message}`, true));
+// ---------- load + light polling (never while you have unsaved choices)
+let lastJson = '';
+async function load() {
+  const next = await api('/api/state');
+  const json = JSON.stringify(next);
+  if (json === lastJson) return;  // nothing changed: don't redraw (keeps icons and focus steady)
+  lastJson = json;
+  state = next;
+  for (const n of picks.keys()) if (!state.rows.some((r) => r.n === n)) picks.delete(n);
+  render();
+}
+setInterval(() => {
+  if (!busy && !picks.size && !$('#dlg').open && document.visibilityState === 'visible') load().catch(() => {});
+}, 20000);
+
+load().catch((e) => { $('#grid').replaceChildren(h('li', 'ge-empty', `Can't reach the desk server: ${e.message}`)); });

@@ -1,55 +1,162 @@
+/* RS3 Desk console: Grand Exchange look. 8 slots + a report panel in a 3 x 3 grid that fits one screen. */
 :root {
-  --buy: #15803d; --sell: #1d4ed8; --change: #9333ea;
-  --line: var(--border, #e3e6ea);
+  --ge-bg: #1b140d;
+  --ge-frame: #3b2d1f;
+  --ge-card: #2f2419;
+  --ge-card-hi: #3d2f21;
+  --ge-line: #5a4630;
+  --ge-gold: #e6b84a;
+  --ge-gold-dim: #a8823a;
+  --ge-text: #ece0c2;
+  --ge-muted: #b5a382;
+  --ge-yellow: #ffd94a;
+  --ge-green: #3fb950;
+  --ge-red: #e5534b;
+  --ge-blue: #79a8ff;
+  --ge-purple: #c58cff;
+  --ge-change: #ffd23f;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { display: flex; flex-direction: column; font: 14px/1.4 system-ui, "Segoe UI", sans-serif; }
+body {
+  background: radial-gradient(ellipse at top, #2a1f15, var(--ge-bg) 70%);
+  color: var(--ge-text);
+  font: 13px/1.3 "Segoe UI", system-ui, sans-serif;
+}
+.ge { height: 100vh; display: flex; flex-direction: column; padding: 8px 10px 10px; gap: 8px; }
 
-.top { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.top h1 { margin: 0; font-size: 18px; }
-.top .actions { margin-left: auto; display: flex; gap: 8px; }
-.muted { color: var(--muted-foreground, #6b7280); margin: 0; }
-.small { font-size: 12px; }
+.ge-bar { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
+.ge-bar h1 {
+  margin: 0; font: 700 20px/1 Georgia, "Times New Roman", serif; letter-spacing: .06em;
+  color: var(--ge-gold); text-shadow: 0 2px 0 #000; text-transform: uppercase;
+}
+.ge-sub { margin: 0 0 0 auto; color: var(--ge-muted); font-size: 12px; }
 
-.layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 1fr); }
-.board { border-right: 1px solid var(--line); min-height: 0; display: flex; flex-direction: column; }
-.board iframe { width: 100%; flex: 1; min-height: 0; border: 0; display: block; }
-.history { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
-.history .select { width: auto; }
-.history.old { background: color-mix(in oklab, #f59e0b 18%, transparent); }
-.report { overflow: auto; padding: 14px 16px 24px; }
-.report h2 { margin: 0 0 4px; font-size: 16px; }
+/* ---- 3 x 3 grid, like the GE: slots 1-3, 4-6, 7-8 + panel */
+.ge-grid {
+  list-style: none; margin: 0; padding: 8px; flex: 1; min-height: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 8px; background: var(--ge-frame); border: 2px solid #120d08; border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--ge-line);
+}
+.ge-slot { display: grid; min-width: 0; min-height: 0; }
+.ge-card {
+  height: 100%; min-height: 0; display: flex; flex-direction: column;
+  background: linear-gradient(var(--ge-card-hi), var(--ge-card)); border: 1px solid #120d08;
+  box-shadow: inset 0 0 0 1px var(--ge-line); border-radius: 4px; overflow: hidden;
+}
+.ge-card.idle { opacity: .75; }
+.ge-card.changed { box-shadow: inset 0 0 0 2px var(--ge-change); }
+.ge-card.reprice { box-shadow: inset 0 0 0 2px var(--ge-purple); }
+.ge-card.reported { box-shadow: inset 0 0 0 2px var(--ge-green); }
 
-.rows { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
-.row { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 6px; }
-.row.changed { border-color: var(--change); box-shadow: 0 0 0 1px var(--change); }
-.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
-.slot { font-weight: 700; font-size: 12px; }
-.side { font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 5px; color: #fff; }
-.side.buy { background: var(--buy); }
-.side.sell { background: var(--sell); }
-.det { font-size: 12px; }
-.itm { font-size: 15px; }
-.ctrl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.ctrl .select { min-width: 270px; width: auto; }
-.extra { display: flex; align-items: center; gap: 4px; font-size: 12px; }
-.num { width: 120px; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.ge-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid #120d08; }
+.ge-title { margin: 0; font: 600 14px/1.2 Georgia, serif; color: var(--ge-gold); text-shadow: 0 1px 0 #000; }
+.ge-badges { margin-left: auto; display: flex; gap: 4px; }
+.ge-badge { font-size: 10px; font-weight: 800; letter-spacing: .04em; padding: 1px 6px; border-radius: 3px; color: #1b140d; }
+.ge-badge.verb-BUY { background: var(--ge-green); }
+.ge-badge.verb-SELL { background: var(--ge-blue); }
+.ge-badge.verb-KEEP { background: #6f6450; color: var(--ge-text); }
+.ge-badge.verb-CHANGE { background: var(--ge-purple); }
+.ge-badge.verb-ABORT { background: var(--ge-red); }
+.ge-badge.chg { background: var(--ge-change); }
+.ge-badge.lock { background: #6f6450; color: var(--ge-text); }
 
-.when { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; display: grid; gap: 6px; }
-.when legend { font-weight: 600; padding: 0 4px; }
-.when label { display: flex; align-items: center; gap: 6px; }
-.when .num { width: 90px; }
-.go { display: flex; gap: 8px; margin-top: 12px; }
-.status { min-height: 1.4em; margin: 8px 0; font-weight: 600; }
-.status.err { color: #b91c1c; }
-pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; margin: 0; }
-#out { max-height: 50vh; overflow: auto; }
+.ge-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px 8px 7px; overflow: auto; }
 
-dialog > div { max-width: min(760px, 92vw) !important; }
-#dlg-body { max-height: 55vh; overflow: auto; }
-.bank { display: grid; gap: 8px; margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
-.bank h3 { margin: 0; font-size: 14px; }
+/* item row: icon with yellow qty, like the game */
+.ge-item { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; align-items: center; }
+.ge-icon { position: relative; width: 40px; height: 36px; display: grid; place-items: center;
+           background: #1e1710; border: 1px solid #120d08; border-radius: 3px; }
+.ge-icon img { max-width: 36px; max-height: 32px; image-rendering: pixelated; }
+.ge-icon .q { position: absolute; top: -1px; left: 1px; font-size: 10px; font-weight: 700; color: var(--ge-yellow);
+              text-shadow: 1px 1px 0 #000; }
+.ge-name { min-width: 0; }
+.ge-name strong { display: block; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ge-name small { color: var(--ge-muted); font-size: 11px; }
+.ge-copy { all: unset; cursor: pointer; color: var(--ge-muted); font-size: 11px; margin-left: 4px; }
+.ge-copy:hover, .ge-copy:focus-visible { color: var(--ge-gold); }
 
-:focus-visible { outline: 2px solid var(--sell); outline-offset: 2px; }
+.ge-prices { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; }
+.ge-price { font-size: 17px; font-weight: 700; color: var(--ge-yellow); font-variant-numeric: tabular-nums; text-shadow: 1px 1px 0 #000; }
+.ge-price.rp { color: var(--ge-purple); }
+.ge-was { color: var(--ge-muted); text-decoration: line-through; font-size: 12px; }
+.ge-delta { font-size: 11px; font-weight: 800; color: #1b140d; background: var(--ge-purple); border-radius: 3px; padding: 0 5px; }
+.ge-then { font-size: 12px; color: var(--ge-muted); }
+.ge-then b { color: var(--ge-blue); font-variant-numeric: tabular-nums; }
+.ge-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 11.5px; color: var(--ge-muted); }
+.ge-meta b { color: var(--ge-text); font-variant-numeric: tabular-nums; }
+.ge-est { color: var(--ge-green); font-weight: 700; }
+.ge-est.neg { color: var(--ge-red); }
+
+.ge-bar-wrap { position: relative; height: 16px; background: #120d08; border: 1px solid #000; border-radius: 2px; overflow: hidden; }
+.ge-bar-wrap i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(#e0a92a, #a8760f); }
+.ge-bar-wrap.done i { background: linear-gradient(#4fc95f, #2a8a37); }
+.ge-bar-wrap span { position: relative; display: block; text-align: center; font-size: 11px; line-height: 14px;
+                    color: #fff; text-shadow: 1px 1px 0 #000; font-variant-numeric: tabular-nums; }
+
+.ge-note { font-size: 11.5px; color: var(--ge-muted); }
+.ge-note.chg { color: var(--ge-change); }
+.ge-note.rp { color: var(--ge-purple); font-weight: 600; }
+.ge-note.abort { color: var(--ge-red); font-weight: 600; }
+.ge-past { font-size: 11.5px; color: var(--ge-muted); }
+.ge-past b { color: var(--ge-green); }
+.ge-past b.neg { color: var(--ge-red); }
+.ge-empty { margin: auto; text-align: center; color: var(--ge-muted); }
+
+/* report chips: what happened, right on the card */
+.ge-report { margin-top: auto; padding-top: 5px; border-top: 1px dashed var(--ge-line); display: grid; gap: 4px; }
+.ge-report .lbl { font-size: 10.5px; color: var(--ge-muted); text-transform: uppercase; letter-spacing: .05em; }
+.ge-chips { display: flex; flex-wrap: wrap; gap: 3px; }
+.ge-chip { all: unset; cursor: pointer; font-size: 11.5px; padding: 2px 7px; border-radius: 3px;
+           background: #1e1710; border: 1px solid var(--ge-line); color: var(--ge-text); }
+.ge-chip:hover { border-color: var(--ge-gold-dim); }
+.ge-chip[aria-pressed="true"] { background: var(--ge-gold); border-color: var(--ge-gold); color: #1b140d; font-weight: 700; }
+.ge-chip:focus-visible, .ge-btn:focus-visible, .ge-select:focus-visible, .ge-num:focus-visible { outline: 2px solid var(--ge-yellow); outline-offset: 1px; }
+.ge-extra { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ge-muted); }
+.ge-extra[hidden] { display: none; }
+.ge-num { width: 110px; padding: 2px 6px; font: inherit; color: var(--ge-text); background: #120d08;
+          border: 1px solid var(--ge-line); border-radius: 3px; }
+.ge-num.tiny { width: 52px; }
+.ge-num.time { width: 108px; }
+
+/* panel (9th cell) */
+.ge-panel .ge-body { gap: 7px; }
+.ge-stats { margin: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ge-stats div { background: #1e1710; border: 1px solid var(--ge-line); border-radius: 3px; padding: 3px 6px; }
+.ge-stats dt { font-size: 10.5px; color: var(--ge-muted); }
+.ge-stats dd { margin: 0; font-weight: 700; color: var(--ge-yellow); font-variant-numeric: tabular-nums; }
+.ge-when { border: 0; margin: 0; padding: 0; }
+.ge-when legend { font-size: 10.5px; color: var(--ge-muted); text-transform: uppercase; letter-spacing: .05em; padding: 0; margin-bottom: 3px; }
+.ge-seg { display: flex; flex-wrap: wrap; gap: 3px; }
+.ge-seg label { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 3px; cursor: pointer;
+                background: #1e1710; border: 1px solid var(--ge-line); font-size: 11.5px; }
+.ge-seg input[type=radio] { position: absolute; opacity: 0; pointer-events: none; }
+.ge-seg label:has(input[type=radio]:checked) { background: var(--ge-gold); color: #1b140d; border-color: var(--ge-gold); font-weight: 700; }
+.ge-seg label:has(input[type=radio]:focus-visible) { outline: 2px solid var(--ge-yellow); }
+.ge-go, .ge-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ge-btn { cursor: pointer; font: 600 13px/1 "Segoe UI", system-ui, sans-serif; padding: 7px 12px; border-radius: 3px;
+          color: var(--ge-text); background: linear-gradient(#4a3a28, #33281b); border: 1px solid #120d08;
+          box-shadow: inset 0 0 0 1px var(--ge-line); }
+.ge-btn.gold { color: #1b140d; background: linear-gradient(#f2c85a, #c3901f); box-shadow: inset 0 0 0 1px #ffe08a; }
+.ge-btn.small { padding: 4px 9px; font-size: 12px; }
+.ge-btn:disabled { opacity: .5; cursor: progress; }
+.ge-select { font: inherit; font-size: 12px; color: var(--ge-text); background: #1e1710; border: 1px solid var(--ge-line);
+             border-radius: 3px; padding: 3px 6px; }
+.ge-status { margin: 0; min-height: 1.3em; font-weight: 600; font-size: 12px; color: var(--ge-gold); }
+.ge-status.err { color: var(--ge-red); }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* dialogs (Basecoat) */
+.ge-dialog > div { max-width: min(900px, 94vw) !important; }
+#dlg-body { max-height: 60vh; overflow: auto; white-space: pre-wrap; font: 12px/1.45 ui-monospace, Consolas, monospace; margin: 0; }
+#dlg-frame { width: min(860px, 90vw); height: 70vh; border: 0; }
+.ge-bank { display: grid; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border, #444); }
+.ge-bank h3 { margin: 0; font-size: 14px; }
+
+@media (max-width: 1000px) {
+  .ge { height: auto; }
+  .ge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: minmax(250px, auto); }
+}

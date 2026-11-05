@@ -718,7 +718,8 @@ def plan_rows(s, plan) -> list[dict]:
         o = by_id[oid]
         log = next((e for e in reversed(o.get("log", [])) if e.get("plan") == plan["id"]), None)
         rem = o["qty"] - sum(f["qty"] for f in o["fills"] if f["at"] < plan["at"])
-        row = {"n": int(n), "item": o["name"], "star": bool(o.get("watch")), "slot": o.get("slot"), "oid": oid}
+        row = {"n": int(n), "item": o["name"], "star": bool(o.get("watch")), "slot": o.get("slot"), "oid": oid,
+               "item_id": o["item_id"], "machine": o.get("strategy") == "machine", "pinned": bool(o.get("pinned"))}
         if log and log["action"] == "abort":
             row.update(verb="ABORT", qty=rem, price=o["price"],
                        note=f"abort this {o['side']} offer and collect what filled" + (f": {log['note']}" if log.get("note") else ""))
@@ -831,9 +832,9 @@ def mark_changes(s, plan, rows) -> None:
             r["changes"] = ch
 
 
-def write_widget(s, plan, live: bool = False) -> Path:
-    """Render a plan's panel. live=True writes the always-current board (ledger/latest.html),
-    which shows fills and finished offers and reloads itself."""
+def board_data(s, plan, live: bool = False) -> dict:
+    """Everything a plan panel shows. live=True is the always-current board: fills, finished
+    offers, and offers recorded after the plan. Used by the panel file and the desk console."""
     t = dt.datetime.fromisoformat(plan["at"])
     rows = plan_rows(s, plan)
     if live:  # offers recorded after the plan (auto-sells, `add`) also belong on the board
@@ -841,6 +842,7 @@ def write_widget(s, plan, live: bool = False) -> Path:
         for o in open_orders(s):
             if o["id"] not in shown:
                 rows.append({"n": "+", "item": o["name"], "slot": o.get("slot"), "verb": o["side"].upper(),
+                             "oid": o["id"], "item_id": o["item_id"],
                              "qty": remaining(o), "price": o["price"], "filled": filled(o), "of": o["qty"],
                              "state": o["status"], "side": o["side"], "note": "listed since the plan",
                              **({"est": e} if (e := estimate(s, o)) else {}),
@@ -862,7 +864,15 @@ def write_widget(s, plan, live: bool = False) -> Path:
         "rows": rows,
         "footer": "Copy puts the exact item name on your clipboard for the GE search. Prices can't be pasted: "
                   "type them, then check the GE total matches the line under the offer before confirming.",
+        "at": plan["at"], "id": plan["id"], "cash": s["cash"], "realised": real,
     }
+    return data
+
+
+def write_widget(s, plan, live: bool = False) -> Path:
+    """Render a plan's panel. live=True writes the always-current board (ledger/latest.html),
+    which shows fills and finished offers and reloads itself."""
+    data = board_data(s, plan, live)
     tpl = (Path(__file__).with_name("plan_widget.html")).read_text(encoding="utf-8")
     blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     out = (LEDGER / (BOARD if live else f"plans/{plan['id']}.html")).resolve()

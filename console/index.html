@@ -8,66 +8,79 @@
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.0.2/dist/basecoat.cdn.min.css">
 <link rel="stylesheet" href="app.css">
-<script>if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.classList.add("dark");</script>
 <script type="module" src="app.js"></script>
 </head>
 <body>
-<header class="top">
-  <h1>RS3 Desk</h1>
-  <p id="summary" class="muted" aria-live="polite">Loading…</p>
-  <nav class="actions">
-    <button class="btn" data-variant="outline" type="button" id="btn-totals">Totals</button>
-    <button class="btn" data-variant="outline" type="button" id="btn-machines">Machines</button>
-  </nav>
-</header>
+<main class="ge" aria-labelledby="ge-title">
+  <header class="ge-bar">
+    <img src="icon.png" alt="" width="28" height="28">
+    <h1 id="ge-title">RS3 Desk</h1>
+    <p id="plan-when" class="ge-sub"></p>
+  </header>
 
-<main class="layout">
-  <section class="board" aria-label="Plan board">
-    <div class="history">
-      <label for="board-pick">Show</label>
-      <select class="select" id="board-pick"><option value="/board">Current board (live)</option></select>
-    </div>
-    <iframe id="board" src="/board" title="Plan board"></iframe>
-  </section>
-
-  <section class="report" aria-labelledby="report-h">
-    <form id="report">
-      <h2 id="report-h">What happened since the last plan?</h2>
-      <p class="muted small">Only change the offers that differ. Anything left on "No change" stays in the GE at the planned price.</p>
-      <ol id="rows" class="rows"></ol>
-
-      <fieldset class="when">
-        <legend>Next check-in</legend>
-        <label><input type="radio" name="mode" value="normal" checked> Normal</label>
-        <label><input type="radio" name="mode" value="watch"> Watching (every few minutes)</label>
-        <label><input type="radio" name="mode" value="hours"> Back in
-          <input class="input num" type="number" name="hours" min="1" max="36" step="0.5" value="2" aria-label="hours"> h</label>
-        <label><input type="radio" name="mode" value="at"> Back at
-          <input class="input num" type="time" name="at" value="07:00" aria-label="time"></label>
-        <label><input type="radio" name="mode" value="away"> Away for
-          <input class="input num" type="number" name="days" min="1" max="14" value="2" aria-label="days"> days</label>
-      </fieldset>
-
-      <div class="go">
-        <button class="btn" type="submit" id="btn-refresh">Save &amp; refresh</button>
-        <button class="btn" data-variant="outline" type="button" id="btn-save">Save only</button>
-      </div>
-      <p id="status" class="status" role="status" aria-live="polite"></p>
-      <details id="out-wrap" hidden>
-        <summary>Plan text and log</summary>
-        <pre id="out"></pre>
-      </details>
-    </form>
-  </section>
+  <ol id="grid" class="ge-grid" aria-label="Grand Exchange slots"></ol>
 </main>
 
-<dialog id="dlg" class="dialog" aria-labelledby="dlg-h">
+<template id="slot-tpl">
+  <li class="ge-slot">
+    <article class="ge-card">
+      <header class="ge-head">
+        <h2 class="ge-title"></h2>
+        <span class="ge-badges"></span>
+      </header>
+      <div class="ge-body"></div>
+    </article>
+  </li>
+</template>
+
+<template id="panel-tpl">
+  <li class="ge-slot">
+    <section class="ge-card ge-panel" aria-labelledby="panel-h">
+      <header class="ge-head"><h2 class="ge-title" id="panel-h">Report &amp; refresh</h2></header>
+      <div class="ge-body">
+        <dl class="ge-stats">
+          <div><dt>Cash</dt><dd id="st-cash">–</dd></div>
+          <div><dt>Profit</dt><dd id="st-pl">–</dd></div>
+          <div><dt>Changes</dt><dd id="st-pending">none</dd></div>
+        </dl>
+        <fieldset class="ge-when">
+          <legend>Next check-in</legend>
+          <div class="ge-seg" role="radiogroup" aria-label="Next check-in">
+            <label><input type="radio" name="mode" value="watch"><span>Watching</span></label>
+            <label><input type="radio" name="mode" value="normal" checked><span>Normal</span></label>
+            <label><input type="radio" name="mode" value="hours"><span>In</span>
+              <input class="ge-num tiny" type="number" name="hours" min="1" max="36" step="0.5" value="2" aria-label="hours from now">h</label>
+            <label><input type="radio" name="mode" value="at"><span>At</span>
+              <input class="ge-num tiny time" type="time" name="at" value="07:00" aria-label="back at"></label>
+            <label><input type="radio" name="mode" value="away"><span>Away</span>
+              <input class="ge-num tiny" type="number" name="days" min="1" max="14" value="2" aria-label="days away">d</label>
+          </div>
+        </fieldset>
+        <div class="ge-go">
+          <button type="button" class="ge-btn gold" id="btn-refresh">Save &amp; refresh</button>
+          <button type="button" class="ge-btn" id="btn-save">Save only</button>
+        </div>
+        <p id="status" class="ge-status" role="status" aria-live="polite"></p>
+        <div class="ge-links">
+          <button type="button" class="ge-btn small" id="btn-totals">Totals</button>
+          <button type="button" class="ge-btn small" id="btn-machines">Machines</button>
+          <label class="sr" for="history">Earlier plans</label>
+          <select id="history" class="ge-select"><option value="">Earlier plans…</option></select>
+        </div>
+      </div>
+    </section>
+  </li>
+</template>
+
+<dialog id="dlg" class="dialog ge-dialog" aria-labelledby="dlg-h">
   <div>
     <header><h2 id="dlg-h">Totals</h2></header>
-    <section><pre id="dlg-body"></pre>
-      <form id="bank" class="bank" hidden>
-        <h3>Record machine leftovers (in the bank)</h3>
-        <label class="label">Machine
+    <section>
+      <pre id="dlg-body"></pre>
+      <iframe id="dlg-frame" title="Earlier plan" hidden></iframe>
+      <form id="bank" class="ge-bank" hidden>
+        <h3>Record stock in the bank</h3>
+        <label class="label">For
           <select class="select" name="kind"><option value="alch">Alchemiser mk. II</option><option value="disasm">Auto disassembler mk. II</option><option value="supply">Supplies (Nature rune / Divine charge)</option></select></label>
         <label class="label">Item <input class="input" name="item" required placeholder="Water battlestaff"></label>
         <label class="label">Quantity <input class="input" name="qty" type="number" min="0" required></label>
@@ -77,23 +90,5 @@
     <footer><button class="btn" data-variant="outline" type="button" id="dlg-close">Close</button></footer>
   </div>
 </dialog>
-
-<template id="row-tpl">
-  <li class="row">
-    <div class="head">
-      <span class="slot"></span>
-      <span class="side"></span>
-      <strong class="itm"></strong>
-      <span class="det muted"></span>
-    </div>
-    <div class="ctrl">
-      <label class="sr" data-for="kind">What happened</label>
-      <select class="select kind"></select>
-      <label class="extra qty-wrap" hidden><span class="lbl">Filled so far</span> <input class="input num qty" type="number" min="0"></label>
-      <label class="extra price-wrap" hidden><span class="lbl">Price each</span> <input class="input num price" type="number" min="1"></label>
-      <label class="extra sell-wrap" hidden><span class="lbl">Sold at</span> <input class="input num sell" type="number" min="1"></label>
-    </div>
-  </li>
-</template>
 </body>
 </html>

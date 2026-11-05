@@ -113,7 +113,7 @@ def open_rows() -> dict:
     """Open offers from the latest plan, numbered as desk.py expects."""
     s = desk.load_state()
     if not s["plans"]:
-        return {"rows": [], "plan": None}
+        return {"rows": [], "plan": None, "board": None, "recent": []}
     plan = s["plans"][-1]
     by_oid = {r["oid"]: r for r in desk.plan_rows(s, plan)}
     num = {oid: int(n) for n, oid in plan["map"].items()}
@@ -130,7 +130,10 @@ def open_rows() -> dict:
     real = sum(x["profit"] for x in s["realized"])
     recent = [{"id": p["id"], "at": p["at"]} for p in s["plans"][-4:-1][::-1]
               if (desk.LEDGER / "plans" / f"{p['id']}.html").exists()]
-    return {"plan": plan["id"], "recent": recent, "at": plan["at"], "cash": s["cash"], "realised": real,
+    board = desk.board_data(s, plan, live=True)
+    for r in board["rows"]:  # trade numbers for the report buttons (open offers only)
+        r["num"] = num.get(r.get("oid")) if r.get("state", "open") == "open" else None
+    return {"board": board, "plan": plan["id"], "recent": recent, "at": plan["at"], "cash": s["cash"], "realised": real,
             "capital": s["cfg"].get("capital"), "rows": rows, "actions": ACTIONS}
 
 
@@ -170,7 +173,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if path == "/board" or path.startswith("/plans/"):
+        if path == "/board" or path.startswith("/plans/"):  # panels: the live board and earlier plans
             f = desk.LEDGER / desk.BOARD
             if path.startswith("/plans/"):  # an earlier plan's panel: /plans/<plan id>
                 pid = path.rsplit("/", 1)[-1]
