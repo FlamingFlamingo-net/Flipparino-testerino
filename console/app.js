@@ -140,10 +140,29 @@ async function submit(refresh) {
   }
 }
 
+function renderHistory() {
+  const pick = $('#board-pick');
+  const keep = pick.value;
+  pick.replaceChildren(new Option('Current board (live)', '/board'));
+  for (const p of state.recent || []) {
+    const t = new Date(p.at);
+    const when = t.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    pick.add(new Option(`Earlier plan: ${when}`, `/plans/${p.id}`));
+  }
+  pick.value = [...pick.options].some((o) => o.value === keep) ? keep : '/board';
+  showBoard();
+}
+
+function showBoard() {
+  const v = $('#board-pick').value;
+  $('.history').classList.toggle('old', v !== '/board');
+  $('#board').src = `${v}?t=${Date.now()}`;
+}
+
 async function load() {
   state = await api('/api/state');
   render();
-  $('#board').src = `/board?t=${Date.now()}`;
+  renderHistory();
 }
 
 async function showText(title, path, bank = false) {
@@ -156,6 +175,7 @@ async function showText(title, path, bank = false) {
 
 $('#report').addEventListener('submit', (e) => { e.preventDefault(); submit(true); });
 $('#btn-save').addEventListener('click', () => submit(false));
+$('#board-pick').addEventListener('change', showBoard);
 $('#btn-totals').addEventListener('click', () => showText('Totals', '/api/totals'));
 $('#btn-machines').addEventListener('click', () => showText('Machines', '/api/machines', true));
 $('#dlg-close').addEventListener('click', () => $('#dlg').close());

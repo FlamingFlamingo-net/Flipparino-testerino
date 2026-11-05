@@ -128,7 +128,9 @@ def open_rows() -> dict:
         })
     rows.sort(key=lambda r: (r["slot"] or 99, r["n"] or 999))
     real = sum(x["profit"] for x in s["realized"])
-    return {"plan": plan["id"], "at": plan["at"], "cash": s["cash"], "realised": real,
+    recent = [{"id": p["id"], "at": p["at"]} for p in s["plans"][-4:-1][::-1]
+              if (desk.LEDGER / "plans" / f"{p['id']}.html").exists()]
+    return {"plan": plan["id"], "recent": recent, "at": plan["at"], "cash": s["cash"], "realised": real,
             "capital": s["cfg"].get("capital"), "rows": rows, "actions": ACTIONS}
 
 
@@ -168,8 +170,13 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if path == "/board":
+        if path == "/board" or path.startswith("/plans/"):
             f = desk.LEDGER / desk.BOARD
+            if path.startswith("/plans/"):  # an earlier plan's panel: /plans/<plan id>
+                pid = path.rsplit("/", 1)[-1]
+                if pid not in {p["id"] for p in desk.load_state()["plans"]}:
+                    return self.send_json({"error": "unknown plan"}, 404)
+                f = desk.LEDGER / "plans" / f"{pid}.html"
             body = f.read_bytes() if f.exists() else b"No board yet: run a refresh."
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

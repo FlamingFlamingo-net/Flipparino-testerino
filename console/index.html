@@ -22,8 +22,12 @@
 </header>
 
 <main class="layout">
-  <section class="board" aria-label="Current plan">
-    <iframe id="board" src="/board" title="Current plan board"></iframe>
+  <section class="board" aria-label="Plan board">
+    <div class="history">
+      <label for="board-pick">Show</label>
+      <select class="select" id="board-pick"><option value="/board">Current board (live)</option></select>
+    </div>
+    <iframe id="board" src="/board" title="Plan board"></iframe>
   </section>
 
   <section class="report" aria-labelledby="report-h">
