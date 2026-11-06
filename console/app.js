@@ -155,7 +155,11 @@ function entry(r, open, card) {
   });
   const name = h('div', 'ge-name', h('strong', null, (r.star ? '★ ' : '') + r.item), h('small', null, `#${r.n}`), copy);
   name.firstChild.title = r.item;
-  body.push(h('div', 'ge-item', icon, name));
+  // big quantity right of the name: what's left to trade on this offer (filled shown on the bar)
+  const left = r.qty ?? Math.max(0, (r.of ?? 0) - (r.filled ?? 0));
+  const qbox = h('div', 'ge-qty', h('span', 'qn', n0(left)), h('span', 'ql', r.of && left !== r.of ? `left of ${n0(r.of)}` : 'qty'));
+  qbox.title = `${n0(left)} ${r.side === 'sell' ? 'to sell' : 'to buy'}`;
+  body.push(h('div', 'ge-item', icon, name, qbox));
 
   // two zones: BUY on the left, SELL on the right, each only when it applies
   const zones = h('div', 'ge-zones');
