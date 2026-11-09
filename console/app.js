@@ -308,6 +308,7 @@ function fillStats() {
   const root = panelEl;
   $('#st-cash', root).textContent = short(state.cash).replace('+', '');
   $('#st-pl', root).textContent = short(state.realised);
+  $('#st-stock', root).textContent = short(state.stock).replace('+', '');
   const hist = $('#history', root);
   hist.replaceChildren(h('option', null, 'Earlier plans…'));
   hist.firstChild.value = '';

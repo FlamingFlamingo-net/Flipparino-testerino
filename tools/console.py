@@ -160,6 +160,7 @@ def open_rows() -> dict:
     for r in board["rows"]:  # trade numbers for the report buttons (open offers only)
         r["num"] = num.get(r.get("oid")) if r.get("state", "open") == "open" or r.get("verb") == "ABORT" else None
     return {"board": board, "plan": plan["id"], "recent": recent, "at": plan["at"], "cash": s["cash"], "realised": real,
+            "stock": sum(x["cost"] for x in s["holdings"].values() if x["qty"] > 0),  # money tied up in unsold goods
             "capital": s["cfg"].get("capital"), "rows": rows, "actions": ACTIONS}
 
 
