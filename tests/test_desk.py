@@ -272,6 +272,34 @@ class FillTests(LedgerCase):
         self.assertEqual((row["verb"], row["price"]), ("CHANGE", 1_061))
         self.assertIsNotNone(row["was_price"])  # the board shows what it's listed at now, crossed out
 
+    def test_repriced_buy_is_resized_for_the_gap(self):
+        # A small leftover buy (nothing filled) that gets re-priced is re-placed from scratch, so it
+        # is sized for the gap like a new buy, up to the buy limit. It never shrinks.
+        n, o = self.num("Bones")
+        s = desk.load_state()
+        small = next(x for x in s["orders"] if x["id"] == o["id"])
+        small["qty"] = 50
+        desk.save_state(s)
+        self.age(12)
+        self.mk["items"][1].update(low=1_050, l1=1_050, l24=1_050, high=1_150, h1=1_150, h24=1_150)
+        self.plan(review_all=True, next="07:00")
+        s = desk.load_state()
+        row = next(r for r in desk.plan_rows(s, s["plans"][-1]) if r["item"] == "Bones")
+        self.assertEqual(row["verb"], "CHANGE")
+        grown = next(x for x in s["orders"] if x["id"] == o["id"])
+        self.assertGreater(grown["qty"], 50)
+        self.assertLessEqual(grown["qty"], 10_000)  # never past the 4h buy limit
+        self.assertGreater(grown["est_profit"], 0)
+
+    def test_repriced_buy_with_fills_keeps_its_quantity(self):
+        n, o = self.num("Bones")
+        self.fill(n, to=10)
+        self.age(12)
+        self.mk["items"][1].update(low=1_050, l1=1_050, l24=1_050, high=1_150, h1=1_150, h24=1_150)
+        self.plan(review_all=True, next="07:00")
+        grown = next(x for x in desk.load_state()["orders"] if x["id"] == o["id"])
+        self.assertEqual(grown["qty"], o["qty"])  # partly bought: re-place the remainder, don't grow
+
     def test_next_checkin_sizes_for_the_gap_and_is_not_saved(self):
         self.assertAlmostEqual(desk.hours_until(self.clock, "07:00"), 22.0)  # Wed 09:00 -> Thu 07:00
         out = self.plan(next="07:00")

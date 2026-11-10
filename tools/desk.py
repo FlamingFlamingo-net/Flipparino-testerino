@@ -449,6 +449,26 @@ def cmd_plan(args):
               if x["confidence"] >= cfg["min_conf"] and strategy in (None, x["strategy"])]
         return max(xs, key=lambda x: x["score"]) if xs else None
 
+    def grow_buy(o, it, x) -> float:
+        """A buy that is re-placed with nothing filled starts from scratch, so size it for this plan's
+        gap like a new buy (a 3-page grimoire offer left over from a nearly used buy limit stayed
+        at 3 overnight). Only ever grows it. Returns the extra cash it now needs."""
+        if (filled(o) or args.away or o.get("strategy") in ("machine", "process", "away")
+                or x["strategy"] in ("process", "away")):
+            return 0
+        old = remaining(o)
+        per = min(s["capital"] * cfg["max_item_share"], available + old * o["price"])
+        big = best_for(it, per, x["strategy"])
+        if not big:
+            return 0
+        left = limit_state(s, it)[0]
+        qty = round_qty(int(min(big["qty"], left)), it["limit"], per, x["buy"])
+        if qty <= old:
+            return 0
+        o["qty"] = qty
+        o["est_profit"] = round(big["profit"] * qty)
+        return (qty - old) * x["buy"]
+
     # 1) existing offers: keep, re-price, or abort
     for o in open_o:
         it = items.get(o["item_id"])
@@ -473,6 +493,7 @@ def cmd_plan(args):
             elif (abs(x["buy"] - o["price"]) / o["price"] > 0.005
                   or (o["price"] > x["buy"] and o["price"] - x["buy"] > 0.5 * x["profit"])):
                 actions.append(("reprice", o, (x["buy"], x["sell"], None, x)))
+                available -= grow_buy(o, it, x)
             elif filled(o) == 0 and not args.review_all:
                 # nothing bought in a whole session at this price: bid a quarter into the margin, once
                 tighter = x["buy"] + max(1, (x["sell"] - x["buy"]) // 4)
