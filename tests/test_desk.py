@@ -380,6 +380,24 @@ class ProcessTests(LedgerCase):
         self.assertAlmostEqual(powders["cost"], o["qty"] * o["price"], delta=1)
         self.assertEqual(s["holdings"]["2"]["qty"], 0)
 
+    def test_ground_powder_is_sold_once(self):
+        # An empty powder holding from an earlier grind sits AFTER the shells in the ledger: the planner must not
+        # list the same powder twice (once from the grind, once as a plain holding).
+        self.plan()
+        s = desk.load_state()
+        n, o = next((int(k), x) for k, v in s["plans"][-1]["map"].items()
+                    for x in s["orders"] if x["id"] == v and x["strategy"] == "process")
+        self.fill(n)
+        s = desk.load_state()
+        s["holdings"] = {**{k: v for k, v in s["holdings"].items() if k != "3"}, "3": {"name": "Old powder", "qty": 0, "cost": 0}}
+        desk.save_state(s)
+        self.age(1)
+        self.plan()
+        s = desk.load_state()
+        sells = [x for x in s["orders"] if x["side"] == "sell" and x["status"] == "open" and x["item_id"] == 3]
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0]["qty"], o["qty"] // 15)
+
 
 class BlockAndRecordTests(LedgerCase):
     def test_blocked_item_never_planned(self):

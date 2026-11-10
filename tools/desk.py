@@ -500,10 +500,13 @@ def cmd_plan(args):
     live = lambda o: not any(a[0] == "abort" and a[1] is o for a in actions)  # noqa: E731
 
     # 2) holdings not yet on sale -> new sell offers (sells get slots before buys)
+    sold_now = set()  # items given a sell this pass (a grind's output holding must not be sold twice)
     for key, hold in list(s["holdings"].items()):
         if hold["qty"] <= 0 or slots_used >= SLOTS:
             continue
         iid = int(key)
+        if iid in sold_now:
+            continue
         if any(o["side"] == "buy" and o["item_id"] == iid and live(o) for o in open_o):
             continue  # sell once the buy offer is finished or aborted; never trade against yourself
         on_sale = sum(remaining(o) for o in open_o if o["side"] == "sell" and o["item_id"] == iid and live(o))
@@ -534,6 +537,7 @@ def cmd_plan(args):
         price, why = sell_target(s, it, hold, hold.get("target_sell"), stats.get(iid))
         note = "; ".join(x for x in (note, why) if x) or None
         actions.append(("new", new_order(s, "sell", it, qty, price, hold.get("strategy", "spread")), note))
+        sold_now.add(iid)
         slots_used += 1
 
     # 3a) invention machines: in the days before the weekly refill, their inputs get slots first
