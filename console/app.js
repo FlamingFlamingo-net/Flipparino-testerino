@@ -220,7 +220,23 @@ function pastLine(r) {
   return line;
 }
 
-function slotCard(slot, rows, openByN) {
+function reserveToggle(slot, on) {
+  const lab = h('label', 'ge-reserve');
+  const box = h('input');
+  box.type = 'checkbox'; box.checked = on;
+  box.setAttribute('aria-label', `Slot ${slot} reserved for your own offer`);
+  box.addEventListener('change', async () => {
+    box.disabled = true;
+    try { await api('/api/reserve', { slot, on: box.checked }); lastJson = ''; await load(); }
+    catch (e) { box.checked = !box.checked; box.disabled = false; setStatus(`Error: ${e.message}`, true); }
+  });
+  lab.append(box, ' Reserved');
+  lab.title = on ? 'Your own offer is here: the planner skips this slot. Untick to flip in it again.'
+                 : 'Tick if you put your own offer in this slot: the planner will skip it.';
+  return lab;
+}
+
+function slotCard(slot, rows, openByN, reserved = false) {
   const li = $('#slot-tpl').content.firstElementChild.cloneNode(true);
   const card = $('.ge-card', li);
   const live = rows.filter((r) => !r.state || r.state === 'open');
@@ -236,6 +252,8 @@ function slotCard(slot, rows, openByN) {
     if (main.machine) badges.append(h('span', 'ge-badge lock', '⚙ machine'));
   }
   if (rows.some((r) => r.changes && r.changes.length)) badges.append(h('span', 'ge-badge chg', 'CHANGE'));
+  badges.append(reserveToggle(slot, reserved));
+  if (reserved) card.classList.add('reserved');
   if (main?.verb === 'CHANGE') card.classList.add('reprice');
   else if (rows.some((r) => r.changes && r.changes.length)) card.classList.add('changed');
   if (!main) card.classList.add('idle');
@@ -248,7 +266,7 @@ function slotCard(slot, rows, openByN) {
     if (ab) { body.append(reportBox(ab, card)); card.dataset.hasAbort = '1'; }
   });
   if (main) body.append(...entry(main, openByN.get(main.num), card));
-  else if (!finished.length) body.append(h('p', 'ge-empty', 'Empty'));
+  else if (!finished.length) body.append(h('p', 'ge-empty', reserved ? 'Reserved: your own offer' : 'Empty'));
   return li;
 }
 
@@ -268,7 +286,8 @@ function render() {
     if (!bySlot.has(k)) bySlot.set(k, []);
     bySlot.get(k).push(r);
   }
-  for (let s = 1; s <= 8; s++) grid.append(slotCard(s, bySlot.get(s) || [], openByN));
+  const reserved = new Set(state.reserved || []);
+  for (let s = 1; s <= 8; s++) grid.append(slotCard(s, bySlot.get(s) || [], openByN, reserved.has(s)));
   grid.append(panel());
   const loose = bySlot.get(0) || [];
   if (loose.length) $('#status').textContent = `Not in a slot: ${loose.map((r) => r.item).join(', ')}`;

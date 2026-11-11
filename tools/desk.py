@@ -517,13 +517,14 @@ def cmd_plan(args):
             else:
                 actions.append(("keep", o, None))
 
+    nslots = SLOTS - len(reserved_slots(s))  # slots the desk may use
     slots_used = sum(1 for k, *_ in actions if k != "abort")
     live = lambda o: not any(a[0] == "abort" and a[1] is o for a in actions)  # noqa: E731
 
     # 2) holdings not yet on sale -> new sell offers (sells get slots before buys)
     sold_now = set()  # items given a sell this pass (a grind's output holding must not be sold twice)
     for key, hold in list(s["holdings"].items()):
-        if hold["qty"] <= 0 or slots_used >= SLOTS:
+        if hold["qty"] <= 0 or slots_used >= nslots:
             continue
         iid = int(key)
         if iid in sold_now:
@@ -566,7 +567,7 @@ def cmd_plan(args):
     if machine_state(s).get("setup") and mc.in_buy_window(t, machine_state(s)):
         week = machine_week(s, t)
         for x in week["targets"]:
-            if slots_used >= SLOTS:
+            if slots_used >= nslots:
                 break
             it = mk["by_name"].get(x["item"])
             if not it or any(o["item_id"] == it["id"] and live(o) for o in open_o):
@@ -586,7 +587,7 @@ def cmd_plan(args):
     available += sum(remaining(a[1]) * a[1]["price"] for a in actions if a[0] == "abort" and a[1]["side"] == "buy")
     available -= sum((a[2][0] - a[1]["price"]) * remaining(a[1]) for a in actions
                      if a[0] == "reprice" and a[1]["side"] == "buy")
-    free = SLOTS - slots_used
+    free = nslots - slots_used
     if free > 0 and available > 0:
         per = min(s["capital"] * cfg["max_item_share"], available / free)
         ideas = []
@@ -660,7 +661,7 @@ def cmd_plan(args):
             actions.append(("new", o, None))
 
     # 4) number and record
-    assign_slots(s, actions)
+    assign_slots(s, actions, reserved_slots(s))
     rank = {"abort": 0, "reprice": 1, "new": 2, "keep": 3}
     # walk the GE screen slot by slot; inside a slot, abort before the replacement
     actions.sort(key=lambda a: (a[1].get("slot") or 99, rank[a[0]]))
@@ -909,16 +910,21 @@ def cmd_widget(_a):
     print(f'::preview{{file="{write_widget(s, s["plans"][-1]).as_posix()}"}}')
 
 
+def reserved_slots(s) -> set[int]:
+    """GE slots the user keeps for their own offers (outside the desk): never planned into."""
+    return set(s.get("cfg", {}).get("reserved_slots", []))
+
+
 def free_slots(s, exclude=()) -> list[int]:
-    taken = {o.get("slot") for o in open_orders(s) if o["id"] not in exclude}
+    taken = {o.get("slot") for o in open_orders(s) if o["id"] not in exclude} | reserved_slots(s)
     return [k for k in range(1, SLOTS + 1) if k not in taken]
 
 
-def assign_slots(s, actions):
+def assign_slots(s, actions, reserved=()):
     """Give every live offer a GE slot (1-8). Kept/changed offers stay where they are; an aborted
     offer frees its slot; new offers take a slot just freed for the same item, else the lowest free."""
     live = [a for a in actions if a[0] != "abort"]
-    taken = {a[1]["slot"] for a in live if a[1].get("slot")}
+    taken = {a[1]["slot"] for a in live if a[1].get("slot")} | set(reserved)
     freed_by_item = {a[1]["item_id"]: a[1]["slot"] for a in actions if a[0] == "abort" and a[1].get("slot")}
     for kind, o, _ in live:
         if o.get("slot") and o["slot"] in taken and kind != "new":
@@ -1165,6 +1171,8 @@ def cmd_set(a):
     if a.cash is not None: s["cash"] = a.cash
     if a.capital is not None: s["capital"] = a.capital
     if a.tax is not None: s["cfg"]["tax_rate"] = a.tax / 100
+    if a.reserve_slots is not None:  # slots you use yourself, e.g. --reserve-slots 2 (none: --reserve-slots "")
+        s["cfg"]["reserved_slots"] = sorted({int(x) for x in a.reserve_slots.replace(",", " ").split()})
     save_state(s)
     print(f"cash {gp(s['cash'])} · capital {gp(s['capital'])} · tax {s['cfg']['tax_rate']:.1%}")
 
@@ -1449,7 +1457,9 @@ def main():
     p = sub.add_parser("reopen", help="an offer the plan aborted is still in the GE")
     p.add_argument("n", type=int); p.set_defaults(fn=cmd_reopen)
     p = sub.add_parser("set"); p.add_argument("--cash", type=gp_arg); p.add_argument("--capital", type=gp_arg)
-    p.add_argument("--tax", type=float); p.set_defaults(fn=cmd_set)
+    p.add_argument("--tax", type=float)
+    p.add_argument("--reserve-slots", help="GE slots you use yourself; the desk never plans into them, e.g. 2")
+    p.set_defaults(fn=cmd_set)
     p = sub.add_parser("holding"); p.add_argument("name"); p.add_argument("qty", type=gp_arg)
     p.add_argument("cost_each", type=gp_arg); p.set_defaults(fn=cmd_holding)
     sub.add_parser("widget").set_defaults(fn=cmd_widget)

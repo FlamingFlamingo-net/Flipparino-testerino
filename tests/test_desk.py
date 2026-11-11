@@ -665,3 +665,14 @@ class EstimateTests(LedgerCase):
         made = desk.estimate(s, sell)
         self.assertTrue(made["made"])
         self.assertEqual(made["value"], round(s["realized"][-1]["profit"]))
+
+
+class ReservedSlotTests(LedgerCase):
+    def test_reserved_slot_is_never_planned_into(self):
+        self.run_cmd(desk.cmd_set, cash=None, capital=None, tax=None, reserve_slots="2")
+        self.plan()
+        s = desk.load_state()
+        slots = [o["slot"] for o in desk.open_orders(s)]
+        self.assertNotIn(2, slots)
+        self.assertLessEqual(len(slots), 7)
+        self.assertEqual(desk.free_slots(s), [k for k in range(1, 9) if k not in slots and k != 2])

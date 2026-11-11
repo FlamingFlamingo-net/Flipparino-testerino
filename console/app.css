@@ -50,6 +50,9 @@ body {
 .ge-card.idle { opacity: .75; }
 .ge-card.changed { box-shadow: inset 0 0 0 2px var(--ge-change); }
 .ge-card.reprice { box-shadow: inset 0 0 0 2px var(--ge-purple); }
+.ge-card.reserved { border-style: dashed; border-color: var(--ge-gold-dim); }
+.ge-reserve { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ge-muted); cursor: pointer; }
+.ge-reserve input { accent-color: var(--ge-gold); }
 .ge-card.reported { box-shadow: inset 0 0 0 2px var(--ge-green); }
 
 .ge-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid #000; }

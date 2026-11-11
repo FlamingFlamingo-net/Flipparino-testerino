@@ -159,7 +159,7 @@ def open_rows() -> dict:
     board = desk.board_data(s, plan, live=True)
     for r in board["rows"]:  # trade numbers for the report buttons (open offers only)
         r["num"] = num.get(r.get("oid")) if r.get("state", "open") == "open" or r.get("verb") == "ABORT" else None
-    return {"board": board, "plan": plan["id"], "recent": recent, "at": plan["at"], "cash": s["cash"], "realised": real,
+    return {"board": board, "reserved": sorted(desk.reserved_slots(s)), "plan": plan["id"], "recent": recent, "at": plan["at"], "cash": s["cash"], "realised": real,
             "stock": sum(x["cost"] for x in s["holdings"].values() if x["qty"] > 0),  # money tied up in unsold goods
             "capital": s["cfg"].get("capital"), "rows": rows, "actions": ACTIONS}
 
@@ -241,6 +241,11 @@ class Handler(SimpleHTTPRequestHandler):
                         out["plan"] = run("plan", "--review-all", *next_arg(data.get("when", {})))
                         out["log"].append(run_backup())
                     return self.send_json(out)
+                if path == "/api/reserve":  # {slot, on}: a slot you use yourself is skipped by the planner
+                    cur = set(desk.reserved_slots(desk.load_state()))
+                    (cur.add if data["on"] else cur.discard)(int(data["slot"]))
+                    run("set", "--reserve-slots", ",".join(map(str, sorted(cur))))
+                    return self.send_json({"reserved": sorted(cur)})
                 if path == "/api/bank":
                     spec = f'{data["kind"]}={data["item"]}={int(data["qty"])}'
                     return self.send_json({"text": run("machines", "--bank", spec).split("## Shopping list", 1)[-1].strip()})
