@@ -397,12 +397,14 @@ def cmd_plan(args):
     watching = getattr(args, "next", None) in ("0", "now")  # "refresh 0": user watches the GE, acts within minutes
     if getattr(args, "next", None):  # the user's next check-in: size and rank for that gap
         gap = 0.0 if watching else hours_until(t, args.next)
-        saved_cfg = {k: cfg[k] for k in ("hold_hours", "min_slot_hours")}
+        saved_cfg = {k: cfg.get(k) for k in ("hold_hours", "min_slot_hours", "checkin_gap")}
         if watching:  # a finished slot gets reused right away: favour fast fills, profit per real hour
-            cfg["hold_hours"], cfg["min_slot_hours"] = 2, 1
+            cfg["hold_hours"], cfg["min_slot_hours"], cfg["checkin_gap"] = 2, 1, None
         else:
             cfg["hold_hours"] = min(max(gap, 2), 36)       # an offer gets until then to fill
             cfg["min_slot_hours"] = max(saved_cfg["min_slot_hours"], min(gap, 36))  # a slot can't be reused sooner
+            # away for hours: buy fills in one period, sell is listed on return and fills in the next
+            cfg["checkin_gap"] = min(gap, 36) if gap > 4 else None
         s["next_checkin"] = "watching" if watching else (t + dt.timedelta(hours=gap)).isoformat()
     mk = rm.load_market()
     items = mk["items"]
@@ -722,7 +724,8 @@ def cmd_plan(args):
     elif getattr(args, "next", None):
         gap = hours_until(t, args.next)
         md = md.replace("\n\n**Do these trades:**", f"\nPlanned for your next check-in at **{args.next}** "
-                        f"(~{gap:.0f}h): offers are sized to fill by then and ranked by profit per check-in."
+                        f"(~{gap:.0f}h): offers are sized to fill by then; a flip takes about 2 periods "
+                        "(buy now, sell when you're back), so ranking counts 2 check-ins per slot."
                         "\n\n**Do these trades:**", 1)
     if not args.dry_run:
         (LEDGER / "plans").mkdir(parents=True, exist_ok=True)

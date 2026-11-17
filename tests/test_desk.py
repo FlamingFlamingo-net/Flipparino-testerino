@@ -676,3 +676,14 @@ class ReservedSlotTests(LedgerCase):
         self.assertNotIn(2, slots)
         self.assertLessEqual(len(slots), 7)
         self.assertEqual(desk.free_slots(s), [k for k in range(1, 9) if k not in slots and k != 2])
+
+
+class CheckinGapTests(unittest.TestCase):
+    def test_away_flip_counts_two_periods(self):
+        import rsmarket as rm
+        cfg = {"min_slot_hours": 8, "checkin_gap": 8}
+        self.assertEqual(rm.busy_hours(1, [], cfg), (16, 1.0))        # fast fill still needs buy + sell visits
+        self.assertEqual(rm.busy_hours(10, [], cfg), (16, 1.0))
+        self.assertEqual(rm.busy_hours(20, [], cfg), (24, 1.0))
+        self.assertEqual(rm.busy_hours(3, ["falling"], cfg), (16, 0.7))  # falling market: two periods of risk
+        self.assertEqual(rm.busy_hours(1, [], {"min_slot_hours": 6}), (6, 1.0))  # no gap: unchanged

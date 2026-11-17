@@ -239,6 +239,17 @@ def slot_hours(qty, lv24, lowflow, hv24, highflow, cfg, ratio=1, out_qty=None):
     return qty / buy_rate + (out_qty if out_qty is not None else qty) / sell_rate
 
 
+def busy_hours(hours, flags, cfg):
+    """Hours a GE slot is really busy, for ranking. At a check-in gap (you are away) an offer can only
+    be placed or listed when you return: the buy fills in one period, the sell in the next, so a flip
+    takes at least 2 gaps. Falling markets cost more over those two periods."""
+    gap = cfg.get("checkin_gap")
+    if not gap:
+        return max(hours, cfg.get("min_slot_hours", 6)), 1.0
+    legs = max(2, math.ceil(hours / gap))
+    return legs * gap, (0.7 if any("falling" in f for f in flags) else 1.0)
+
+
 def suggest(it, st, cfg, budget, watch=False) -> list[dict]:
     """Spread flips (buy at instant-sell+1, sell at instant-buy-1) and dip buys for one item."""
     rp = ref_prices(it, st)
@@ -261,9 +272,10 @@ def suggest(it, st, cfg, budget, watch=False) -> list[dict]:
             fl.append("alch floor")
         conf = confidence(fl)
         hours = slot_hours(qty, it["lv24"], st["lowflow"], it["hv24"], st["highflow"], cfg)
+        busy, risk = busy_hours(hours, fl, cfg)
         out.append({"strategy": strategy, "item": it, "buy": b, "sell": s_, "profit": profit, "qty": qty,
                     "total": profit * qty, "roi": profit / b, "flags": fl, "confidence": conf, "hours": hours,
-                    "score": profit * qty * conf * (1.2 if watch else 1) / max(hours, cfg.get("min_slot_hours", 6)),
+                    "score": profit * qty * conf * risk * (1.2 if watch else 1) / busy,
                     "watch": watch})
 
     # Margins over 15 % are almost always a few stray trades in a thin market: they don't fill.
@@ -310,11 +322,12 @@ def suggest_process(recipe, mk, stats, cfg, budget, watch=True) -> dict | None:
     buy_rate = cfg["capture"] * inflow / 24
     sell_rate = cfg["capture"] * outflow / 24
     hours = (n * ratio / buy_rate + n / sell_rate) if buy_rate > 0 and sell_rate > 0 else 48.0
+    busy, risk = busy_hours(hours, flags, cfg)
     return {"strategy": "process", "item": a, "out": b, "ratio": ratio, "buy": in_buy, "sell": out_sell,
             "qty": n * ratio, "outputs": n, "profit": profit_out / ratio, "profit_out": profit_out,
             "total": profit_out * n, "roi": profit_out / (ratio * in_buy), "flags": flags, "cons": cons,
             "confidence": conf, "hours": hours, "watch": watch,
-            "score": profit_out * n * conf * (1.2 if watch else 1) / max(hours, cfg.get("min_slot_hours", 6))}
+            "score": profit_out * n * conf * risk * (1.2 if watch else 1) / busy}
 
 
 # ---------- "away" trades: buy now, park a sell at a level the price keeps revisiting ----------
