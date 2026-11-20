@@ -687,3 +687,32 @@ class CheckinGapTests(unittest.TestCase):
         self.assertEqual(rm.busy_hours(20, [], cfg), (24, 1.0))
         self.assertEqual(rm.busy_hours(3, ["falling"], cfg), (16, 0.7))  # falling market: two periods of risk
         self.assertEqual(rm.busy_hours(1, [], {"min_slot_hours": 6}), (6, 1.0))  # no gap: unchanged
+
+
+class RoundNumberTests(unittest.TestCase):
+    def test_close_to_a_round_number_snaps_to_it(self):
+        self.assertEqual(desk.round_qty(9_900, 10_000, 1e9, 1_425), 10_000)
+        self.assertEqual(desk.round_qty(4_900, 5_000, 1e9, 1_425), 5_000)
+        self.assertEqual(desk.round_qty(2_000, 10_000, 1e9, 11_180), 2_000)
+
+    def test_snap_never_passes_limit_or_cash(self):
+        self.assertEqual(desk.round_qty(9_900, 9_900, 1e9, 1_425), 9_900)
+        self.assertEqual(desk.round_qty(9_900, 10_000, 14_200_000, 1_425), 9_900)
+
+    def test_far_from_round_number_stays_in_hundreds(self):
+        self.assertEqual(desk.round_qty(6_038, 10_000, 1e9, 2_070), 6_000)
+        self.assertEqual(desk.round_qty(7_400, 10_000, 1e9, 2_070), 7_400)
+
+
+class MergeSellsTests(unittest.TestCase):
+    def test_same_item_same_price_sells_become_one_offer(self):
+        mk = lambda i, slot, qty, price, fills=(): {"id": i, "side": "sell", "item_id": 7, "name": "Powder", "slot": slot,
+                                                      "qty": qty, "price": price, "status": "open", "fills": list(fills)}
+        s = {"orders": [mk("T1", 3, 19, 412_026), mk("T2", 8, 17, 412_026, [{"qty": 1, "price": 412_026}]),
+                        mk("T3", 5, 4, 400_000)]}
+        notes = desk.merge_duplicate_sells(s)
+        a, b, c = s["orders"]
+        self.assertEqual((a["qty"], a["status"]), (35, "open"))
+        self.assertEqual((b["qty"], b["status"]), (1, "done"))    # its one sold unit stays booked on it
+        self.assertEqual(c["status"], "open")                     # different price: untouched
+        self.assertEqual(len(notes), 1)

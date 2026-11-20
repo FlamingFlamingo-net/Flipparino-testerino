@@ -246,6 +246,12 @@ def round_qty(q: int, limit: int, budget: float, price: float, step: int = 100) 
     r = round(q / step) * step
     if r > cap:
         r = q // step * step
+    if step == 100 and r >= 1000:  # 9,900 -> 10,000, 4,900 -> 5,000 (never past the cap)
+        e = 10 ** (len(str(int(r))) - 1)
+        near = min((m * e * k for m in (1, 2, 5) for k in (1, 10, 0.1) if m * e * k >= 1000),
+                   key=lambda v: abs(v - r))
+        if abs(near - r) <= 0.03 * near and near <= cap:
+            r = int(near)
     return int(r)
 
 
@@ -410,6 +416,7 @@ def cmd_plan(args):
     items = mk["items"]
     watch_ids = {mk["by_name"][n]["id"] for n in cfg["watchlist"] if n in mk["by_name"]}
 
+    merge_notes = merge_duplicate_sells(s)
     open_o = open_orders(s)
     used_items = {o["item_id"] for o in open_o} | {int(k) for k, h in s["holdings"].items() if h["qty"] > 0}
     available = s["cash"] - reserved_cash(s)
@@ -717,6 +724,8 @@ def cmd_plan(args):
     if saved_cfg:
         cfg.update(saved_cfg)
     md = render_plan(s, t, mk, lines, args.dry_run, len(failed))
+    if merge_notes:
+        md = md.replace("\n\n**Do these trades:**", "\n\n" + "\n".join(merge_notes) + "\n\n**Do these trades:**", 1)
     if watching:
         md = md.replace("\n\n**Do these trades:**", "\n**Watching mode**: you're at the GE and refresh as soon as "
                         "something fills, so trades are picked for fast fills (profit per hour), sized to fill in ~2h."
@@ -911,6 +920,29 @@ def cmd_widget(_a):
     if not s["plans"]:
         sys.exit("No plan yet.")
     print(f'::preview{{file="{write_widget(s, s["plans"][-1]).as_posix()}"}}')
+
+
+def merge_duplicate_sells(s) -> list[str]:
+    """Two open sell offers for the same item at the same price waste a slot: fold the later one
+    into the lower slot (qty added, fills stay with their own order). Returns notes for the plan."""
+    notes, seen = [], {}
+    for o in sorted(open_orders(s), key=lambda o: (o.get("slot") or 99, o["id"])):
+        if o["side"] != "sell":
+            continue
+        k = (o["item_id"], o["price"])
+        keep = seen.get(k)
+        if keep is None:
+            seen[k] = o
+            continue
+        extra = remaining(o)
+        keep["qty"] += extra
+        o["qty"] = filled(o)
+        o["status"] = "done" if filled(o) else "cancelled"
+        o["closed"] = now().isoformat()
+        o.setdefault("log", []).append({"at": now().isoformat(), "action": "merge", "note": f"merged into {keep['id']}"})
+        notes.append(f"**Combine** the two {o['name']} sells @ {o['price']:,} into slot {keep.get('slot')}: "
+                     f"one offer for **{remaining(keep):,}** (abort the one in slot {o.get('slot')}, collect, and add it).")
+    return notes
 
 
 def reserved_slots(s) -> set[int]:
