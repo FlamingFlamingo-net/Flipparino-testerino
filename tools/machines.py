@@ -44,7 +44,7 @@ JCR = 0.80                      # junk chance reduction 9 (Invention 105): junk 
 
 # Maxed tier of each machine (wiki: Machines). per_h = items per hour, mc_h = machine charge per hour.
 MACHINES = {
-    "alch":   {"name": "Alchemiser mk. II", "power": 55, "per_h": 25, "mc_h": 150, "cap": 5_000, "max": 2},
+    "alch":   {"name": "Alchemiser mk. II", "power": 55, "per_h": 15, "mc_h": 120, "cap": 3_000, "max": 1},
     "disasm": {"name": "Auto disassembler mk. II", "power": 40, "per_h": 60, "mc_h": 230, "cap": 13_000, "max": 6},
     "tanner": {"name": "Optimised hide tanner", "power": 50, "per_h": 140, "mc_h": 840, "cap": 30_000, "max": 6},
     "plank":  {"name": "High capacity plank maker", "power": 65, "per_h": 40, "mc_h": 600, "cap": 7_500, "max": 6},
@@ -55,7 +55,10 @@ HIDES = [("Cowhide", "Hard leather"), ("Snake hide", "Snakeskin"), ("Snake hide 
          ("Red dragonhide", "Red dragon leather"), ("Black dragonhide", "Black dragon leather"),
          ("Royal dragonhide", "Royal dragon leather"), ("Undead dragonhide", "Undead dragon leather"),
          ("Dinosaur hide", "Dinosaur leather"), ("Apex hide", "Apex leather")]
-LOGS = [("Logs", "Plank"), ("Oak logs", "Oak plank"), ("Teak logs", "Teak plank"), ("Mahogany logs", "Mahogany plank")]
+LOGS = [("Logs", "Plank"), ("Oak logs", "Oak plank"), ("Willow logs", "Willow plank"), ("Teak logs", "Teak plank"),
+        ("Maple logs", "Maple plank"), ("Acadia logs", "Acadia plank"), ("Mahogany logs", "Mahogany plank"),
+        ("Yew logs", "Yew plank"), ("Magic logs", "Magic plank"), ("Elder logs", "Elder plank"),
+        ("Eternal magic logs", "Eternal plank")]  # all 11 recipes of the high capacity plank maker (wiki)
 
 # How much we can realistically buy/sell in a week
 BUY_WINDOWS = 14     # 4-hour buy-limit windows in a week (2 GE visits a day x 7 days)
@@ -393,14 +396,14 @@ def best_setups(report, hotspots: int = 6, skip=("potion",), budget: float = mat
         out[power] = {"worst_week": sum(report["machines"][m]["fill"][k]["worst_week"] for m, k in ms_.items()),
                       "machines": ms_,
                       "cash": sum(report["machines"][m]["fill"][k]["cash"] for m, k in ms_.items())}
-    cur = {"alch": 2, "disasm": 1}
+    cur = {"alch": 1, "disasm": 2}
     out["current"] = {"worst_week": sum(report["machines"][m]["fill"][k]["worst_week"] for m, k in cur.items()),
                       "machines": cur, "cash": sum(report["machines"][m]["fill"][k]["cash"] for m, k in cur.items())}
     return out
 
 
 # ---------- weekly schedule ----------
-DEFAULT_SCHEDULE = {"setup": {"alch": 2, "disasm": 1},  # what's built in the Invention Guild
+DEFAULT_SCHEDULE = {"setup": {"alch": 1, "disasm": 2},  # what's built in the Invention Guild
                     "refill_weekday": 1, "refill_hour": 18,   # Tuesday 18:00 local: inputs go in
                     "buy_days": 7}                            # the week runs reset to reset: buy all week
 
@@ -473,7 +476,7 @@ def render(rep):
         L.append(f"Item for the week (one machine): {mix}")
     L.append("\n## Best machine set-up (bad-week profit, only what volume allows)")
     for k, v in rep["setups"].items():
-        label = "Now (2 alchemisers + 1 disassembler)" if k == "current" else f"{k} power"
+        label = "Now (1 alchemiser + 2 disassemblers)" if k == "current" else f"{k} power"
         L.append(f"- {label}: **{gp(v['worst_week'])}/week** in a bad week, needs {gp(v['cash'])} of stock — "
                  + ", ".join(f"{n}× {MACHINES[m]['name']}" for m, n in v["machines"].items()))
     return "\n".join(L)

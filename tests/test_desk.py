@@ -82,6 +82,8 @@ class LedgerCase(unittest.TestCase):
         desk._item_ids = lambda: {it["name"]: i for i, it in self.mk["items"].items()}
         # machines: no network; a fixed weekly shopping list (Speedy whirligig shell stands in for an input)
         mc.analyse = lambda *a, **k: FAKE_MACHINE_REPORT
+        self._alch = dict(mc.MACHINES["alch"])  # machine rules under test: two 25/h, 5,000-item alchemisers (pre-patch);
+        mc.MACHINES["alch"].update(per_h=25, mc_h=150, cap=5_000, max=2)  # the live numbers have their own test
         self._sched = mc.DEFAULT_SCHEDULE  # no machines in the generic ledger tests
         mc.DEFAULT_SCHEDULE = {**self._sched, "setup": {}}
         # default clock: a Wednesday morning, outside the machine buy window
@@ -92,6 +94,7 @@ class LedgerCase(unittest.TestCase):
         (desk.LEDGER, desk.STATE, rm.load_market, rm.load_series, rm.load_series30,
          rm.get_json, desk._item_ids, mc.analyse, desk.now) = self._saved
         mc.DEFAULT_SCHEDULE = self._sched
+        mc.MACHINES["alch"].update(self._alch)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_cmd(self, fn, **kw) -> str:
@@ -500,7 +503,8 @@ class MachineScheduleTests(unittest.TestCase):
 class MachineDeskTests(LedgerCase):
     def setUp(self):
         super().setUp()
-        mc.DEFAULT_SCHEDULE = {**self._sched, "buy_days": 3.5}  # these tests check the window edge too
+        # two-alchemiser rules (pre-patch) and the window edge too
+        mc.DEFAULT_SCHEDULE = {**self._sched, "buy_days": 3.5, "setup": {"alch": 2, "disasm": 1}}
         self.clock = dt.datetime(2026, 10, 31, 8, 0).astimezone()  # Saturday morning: buy window open
 
     def test_outside_window_no_machine_buys(self):
@@ -716,3 +720,19 @@ class MergeSellsTests(unittest.TestCase):
         self.assertEqual((b["qty"], b["status"]), (1, "done"))    # its one sold unit stays booked on it
         self.assertEqual(c["status"], "open")                     # different price: untouched
         self.assertEqual(len(notes), 1)
+
+
+class AlchemiserPatchTests(unittest.TestCase):
+    def test_one_alchemiser_15_per_hour_3000_items(self):
+        # Patch notes 22 Nov: max one Alchemiser, Mk.2 = 15 items/h, holds 3,000, charge 120/h
+        a = mc.MACHINES["alch"]
+        self.assertEqual((a["max"], a["per_h"], a["cap"], a["mc_h"]), (1, 15, 3_000, 120))
+        self.assertEqual((mc.DEFAULT_SCHEDULE["setup"].get("alch"), mc.DEFAULT_SCHEDULE["setup"].get("disasm")), (1, 2))
+        self.assertEqual(a["per_h"] * mc.WEEK_H, 2_520)           # a week's inputs fit in the 3,000 cap
+        self.assertEqual(a["mc_h"] / a["per_h"], 8)               # charge per item: 8 (was 6)
+
+
+    def test_plank_maker_knows_all_eleven_recipes(self):
+        names = {a for a, _ in mc.LOGS}
+        self.assertEqual(len(mc.LOGS), 11)
+        self.assertTrue({"Willow logs", "Acadia logs", "Eternal magic logs", "Elder logs"} <= names)
