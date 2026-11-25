@@ -191,6 +191,7 @@ def machine_left(s, w, name) -> int:
             need = x["qty"]
         else:
             need = machine_cap(s, kind) - inside["at_refill"]
+        need += machine_state(s).get("keep", {}).get(kind, 0)  # stock to keep in the bank AFTER loading
         need -= have + w["bought"].get(name, 0)
     return max(0, need)  # machine amounts are exact (no rounding to hundreds)
 
@@ -203,6 +204,8 @@ def project_loaded(s, w) -> dict:
     last_refill = refill - dt.timedelta(days=7)
     out = {}
     for kind, x in m.get("loaded", {}).items():
+        if m["setup"].get(kind, 1) <= 0:  # machine type removed: nothing runs, nothing to project
+            continue
         rate = mc.MACHINES[kind]["per_h"] * m["setup"].get(kind, 1)  # inputs used per hour, all copies
         at, qty, item = dt.datetime.fromisoformat(x["at"]), x["qty"], x["item"]
         if at < last_refill <= now():  # a refill happened since: the user capped them again
@@ -1310,6 +1313,9 @@ def cmd_machines(a):
         kind, q = spec.split("=", 1)
         kind = {"nature": "Nature rune", "charges": mc.DC}.get(kind, kind)
         m.setdefault("reserve", {})[kind] = gp_arg(q)
+    for spec in getattr(a, "keep", None) or []:  # stock to KEEP in the bank after loading: --keep plank=15000
+        kind, q = spec.split("=", 1)
+        m.setdefault("keep", {})[kind] = gp_arg(q)
     ensure_supplies(s, w)
     for spec in a.bank or []:  # held in the bank for the next load: --bank disasm="Yak-hide=1626"
         kind, rest = spec.split("=", 1)
@@ -1509,6 +1515,8 @@ def main():
     p.add_argument("--pick", action="append", help='choose the week\'s item, e.g. --pick alch="Water battlestaff"')
     p.add_argument("--reserve", action="append",
                    help="stock to have when loading the machines, e.g. --reserve alch=10000 / nature=100k / charges=1000")
+    p.add_argument("--keep", action="append",
+                   help="stock to keep in the bank AFTER loading (on top of what the machines take), e.g. --keep plank=15000")
     p.set_defaults(fn=cmd_machines)
     p = sub.add_parser("deposit"); p.add_argument("amount", type=gp_arg); p.add_argument("--note")
     p.set_defaults(fn=cmd_deposit)

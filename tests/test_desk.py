@@ -746,3 +746,30 @@ class WeeklyReportTests(unittest.TestCase):
         self.assertEqual(weekly.week_end(d(2026, 11, 24, 23, 45)), d(2026, 11, 24, 18, 0))   # Tue after 18:00
         self.assertEqual(weekly.week_end(d(2026, 11, 24, 17, 59)), d(2026, 11, 17, 18, 0))   # Tue before 18:00
         self.assertEqual(weekly.week_end(d(2026, 11, 22, 9, 0)), d(2026, 11, 17, 18, 0))     # Sunday
+
+
+class RemovedMachineTests(LedgerCase):
+    def test_removed_machine_type_does_not_break_projection(self):
+        s = desk.load_state() if (desk.STATE).exists() else None
+        self.plan()
+        s = desk.load_state()
+        m = s["machines"]
+        m["setup"] = {"alch": 1, "disasm": 0}
+        m["loaded"] = {"disasm": {"item": "Tempered fungal shaft", "qty": 10_000, "at": self.clock.isoformat()}}
+        w = desk.machine_week(s, self.clock)
+        self.assertEqual(desk.project_loaded(s, w), {})   # was a ZeroDivisionError
+
+
+class KeepAfterLoadingTests(LedgerCase):
+    def test_keep_adds_to_what_the_machines_take(self):
+        self.plan()
+        s = desk.load_state()
+        m = s["machines"]
+        m["setup"] = {"alch": 1, "disasm": 0}
+        m["keep"] = {"alch": 3_000}
+        m["loaded"] = {"alch": {"item": "Speedy whirligig shell", "qty": 0, "at": self.clock.isoformat()}}
+        m["reserve"] = {}
+        w = desk.machine_week(s, self.clock)
+        # empty machine: it takes its cap (5,000 under the test rules), plus 3,000 kept after loading, minus 500 in the bank
+        w["bank"] = {"alch": {"Speedy whirligig shell": 500}}
+        self.assertEqual(desk.machine_left(s, w, "Speedy whirligig shell"), 5_000 + 3_000 - 500)
