@@ -130,6 +130,9 @@ def machine_week(s, t, force=False) -> dict:
     refill = mc.next_refill(t, m).isoformat()
     w = m.get("week")
     if force or not w or w["refill"] != refill:
+        if w and w.get("bought") is not None:  # keep the finished week for the weekly report
+            m.setdefault("history", []).append({k: w.get(k) for k in ("refill", "made", "targets", "bought", "spent", "bank")})
+            m["history"] = m["history"][-26:]
         rep = mc.analyse()
         (LEDGER / "machines.json").write_text(json.dumps(rep, indent=1), encoding="utf-8")
         w = {"refill": refill, "made": t.isoformat(), "targets": mc.shopping_list(rep, m["setup"]),

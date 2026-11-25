@@ -736,3 +736,13 @@ class AlchemiserPatchTests(unittest.TestCase):
         names = {a for a, _ in mc.LOGS}
         self.assertEqual(len(mc.LOGS), 11)
         self.assertTrue({"Willow logs", "Acadia logs", "Eternal magic logs", "Elder logs"} <= names)
+
+
+class WeeklyReportTests(unittest.TestCase):
+    def test_week_runs_tuesday_1800_to_tuesday_1800(self):
+        import weekly
+        tz = dt.datetime(2026, 1, 1).astimezone().tzinfo
+        d = lambda *a: dt.datetime(*a, tzinfo=tz)  # noqa: E731
+        self.assertEqual(weekly.week_end(d(2026, 11, 24, 23, 45)), d(2026, 11, 24, 18, 0))   # Tue after 18:00
+        self.assertEqual(weekly.week_end(d(2026, 11, 24, 17, 59)), d(2026, 11, 17, 18, 0))   # Tue before 18:00
+        self.assertEqual(weekly.week_end(d(2026, 11, 22, 9, 0)), d(2026, 11, 17, 18, 0))     # Sunday
