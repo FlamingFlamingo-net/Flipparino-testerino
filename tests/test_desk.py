@@ -166,8 +166,9 @@ class QtyRoundingTests(unittest.TestCase):
         self.assertEqual(desk.round_qty(1_026, 10_000, 1e9, 12_174), 1_000)
 
     def test_caps_round_down(self):
-        # nearest is 2,200 but cash only covers 2,187 -> 2,100
-        self.assertEqual(desk.round_qty(2_187, 0, 12_500_000, 5_715), 2_100)
+        # nearest is 3,500 but cash only covers 3,487 -> 3,400 (not near a 1/2/5 number, so no snapping)
+        self.assertEqual(desk.round_qty(3_487, 0, 13_950_000, 4_000), 3_400)
+        self.assertEqual(desk.round_qty(2_187, 0, 12_500_000, 5_715), 2_000)  # 2,100 is within 5% of 2,000: snaps down
         self.assertEqual(desk.round_qty(150, 100, 1e9, 1), 100)  # never above the buy limit
 
     def test_small_kept_exact(self):
@@ -773,3 +774,10 @@ class KeepAfterLoadingTests(LedgerCase):
         # empty machine: it takes its cap (5,000 under the test rules), plus 3,000 kept after loading, minus 500 in the bank
         w["bank"] = {"alch": {"Speedy whirligig shell": 500}}
         self.assertEqual(desk.machine_left(s, w, "Speedy whirligig shell"), 5_000 + 3_000 - 500)
+
+
+    def test_1900_and_4800_snap_to_2000_and_5000(self):
+        self.assertEqual(desk.round_qty(1_900, 10_000, 1e9, 2_499), 2_000)
+        self.assertEqual(desk.round_qty(4_800, 10_000, 1e9, 1_223), 5_000)
+        self.assertEqual(desk.round_qty(1_900, 1_900, 1e9, 2_499), 1_900)   # buy limit still wins
+        self.assertEqual(desk.round_qty(3_300, 10_000, 1e9, 1_222), 3_300)  # not near 1/2/5: unchanged
