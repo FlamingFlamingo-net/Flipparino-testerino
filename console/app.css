@@ -183,3 +183,11 @@ body {
   .ge { height: auto; }
   .ge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: minmax(250px, auto); }
 }
+
+/* typed-number checks: yellow = unusual, red = probably a slip */
+.ge-check { font-size: 11px; line-height: 1.3; margin-top: 3px; }
+.ge-check:empty { display: none; }
+.ge-check.warn { color: #ffd23f; }
+.ge-check.bad { color: #ff5a4f; font-weight: 600; }
+.ge-num.warn { border-color: #ffd23f; box-shadow: 0 0 0 1px #ffd23f; }
+.ge-num.bad { border-color: #ff5a4f; box-shadow: 0 0 0 1px #ff5a4f; }

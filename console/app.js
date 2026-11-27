@@ -75,6 +75,27 @@ function choicesFor(r) {
   return k;
 }
 
+// Sanity check on a typed number. Returns null when it looks right, else {level: 'warn'|'bad', msg}.
+// Prices are compared with the plan's own prices for that offer (offer, then-sell, old price); quantities with the offer size.
+function checkValue(open, field, v) {
+  if (v == null || Number.isNaN(v)) return null;
+  if (field === 'qty') {
+    if (v > open.qty) return { level: 'bad', msg: `${n0(v)} is more than the offer (${n0(open.qty)})` };
+    if (v < (open.filled || 0)) return { level: 'warn', msg: `${n0(v)} is less than the ${n0(open.filled)} already recorded` };
+    return null;
+  }
+  const refs = [open.price, open.then_sell, open.was_price].filter((x) => x > 0);
+  if (!refs.length) return null;
+  const near = refs.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+  const pct = Math.abs(v - near) / near * 100;
+  const ratio = v / near;
+  const digits = [10, 100, 1000].some((k) => Math.abs(ratio - k) < 0.12 * k || Math.abs(ratio - 1 / k) < 0.12 / k);
+  if (digits) return { level: 'bad', msg: `${n0(v)} looks like a digit slip (plan price ${n0(near)})` };
+  if (pct >= 10) return { level: 'bad', msg: `${n0(v)} is ${pct.toFixed(0)}% from the plan price ${n0(near)}` };
+  if (pct >= 3) return { level: 'warn', msg: `${n0(v)} is ${pct.toFixed(1)}% from the plan price ${n0(near)}` };
+  return null;
+}
+
 function reportBox(open, card) {
   const box = h('div', 'ge-report' + (open.aborted ? ' abort' : ''));
   box.append(h('span', 'lbl', open.aborted ? 'The abort:' : 'What happened?'));
@@ -86,7 +107,18 @@ function reportBox(open, card) {
   const xlabel = h('label', null);
   const id = `x-${open.n}`;
   input.id = id; xlabel.htmlFor = id;
-  extra.append(xlabel, input);
+  const hint = h('div', 'ge-check');
+  hint.setAttribute('role', 'status');
+  extra.append(xlabel, input, hint);
+  const showCheck = () => {
+    const p = picks.get(open.n);
+    const c = p && p[input.dataset.field] != null ? checkValue(open, input.dataset.field, p[input.dataset.field]) : null;
+    if (p) p.flag = c ? { ...c, what: open.item } : undefined;
+    hint.textContent = c ? `${c.level === 'bad' ? '✕' : '⚠'} ${c.msg}` : '';
+    hint.className = 'ge-check' + (c ? ` ${c.level}` : '');
+    input.classList.toggle('warn', c?.level === 'warn');
+    input.classList.toggle('bad', c?.level === 'bad');
+  };
 
   const sync = () => {
     const p = picks.get(open.n);
@@ -102,6 +134,7 @@ function reportBox(open, card) {
       input.max = need === 'qty' ? String(open.qty) : '';
       input.value = p[need] ?? '';
       input.dataset.field = need;
+      showCheck();
     }
     updatePending();
   };
@@ -129,6 +162,7 @@ function reportBox(open, card) {
     if (!p) return;
     const v = input.value === '' ? undefined : Number(input.value);
     p[input.dataset.field] = v;
+    showCheck();
   });
   box.append(chips, extra);
   queueMicrotask(sync);
@@ -357,7 +391,7 @@ function collect() {
     const what = open ? open.item : `#${p.n}`;
     if ((p.kind === 'part' || p.kind === 'aborted') && p.qty == null) throw new Error(`${what}: enter how many filled`);
     if (p.kind === 'price' && p.price == null) throw new Error(`${what}: enter the price it's listed at`);
-    const { card, ...send } = p;
+    const { card, flag, ...send } = p;
     out.push(send);
   }
   return out;
@@ -371,6 +405,14 @@ function when() {
 async function submit(refresh) {
   let actions;
   try { actions = collect(); } catch (e) { setStatus(e.message, true); return; }
+  const flagged = [...picks.values()].filter((p) => p.flag);
+  if (flagged.length) {  // unusual numbers: make the user confirm each one
+    const lines = flagged.map((p) => `${p.flag.level === 'bad' ? '✕' : '⚠'} ${p.flag.what}: ${p.flag.msg}`).join('\n');
+    if (!window.confirm(`Check these numbers before saving:\n\n${lines}\n\nSave them as typed?`)) {
+      setStatus('Not saved: fix the highlighted numbers.', true);
+      return;
+    }
+  }
   if (!refresh && !actions.length) { setStatus('Nothing to save.'); return; }
   busy = true;
   const btns = [$('#btn-refresh', panelEl), $('#btn-save', panelEl)];

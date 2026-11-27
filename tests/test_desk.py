@@ -779,5 +779,7 @@ class KeepAfterLoadingTests(LedgerCase):
     def test_1900_and_4800_snap_to_2000_and_5000(self):
         self.assertEqual(desk.round_qty(1_900, 10_000, 1e9, 2_499), 2_000)
         self.assertEqual(desk.round_qty(4_800, 10_000, 1e9, 1_223), 5_000)
+        self.assertEqual(desk.round_qty(1_800, 10_000, 1e9, 2_453), 2_000)  # user: 1,800 should be 2k
+        self.assertEqual(desk.round_qty(4_500, 10_000, 1e9, 1_223), 5_000)
         self.assertEqual(desk.round_qty(1_900, 1_900, 1e9, 2_499), 1_900)   # buy limit still wins
         self.assertEqual(desk.round_qty(3_300, 10_000, 1e9, 1_222), 3_300)  # not near 1/2/5: unchanged

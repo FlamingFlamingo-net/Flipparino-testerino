@@ -256,7 +256,7 @@ def round_qty(q: int, limit: int, budget: float, price: float, step: int = 100) 
         e = 10 ** (len(str(int(r))) - 1)
         near = min((m * e * k for m in (1, 2, 5) for k in (1, 10, 0.1) if m * e * k >= 1000),
                    key=lambda v: abs(v - r))
-        if abs(near - r) <= 0.055 * near and near <= cap:  # 1,900 -> 2,000 (5.0%), 4,800 -> 5,000 (4.0%)
+        if abs(near - r) <= 0.11 * near and near <= cap:  # 1,800/1,900 -> 2,000, 4,500/4,800 -> 5,000
             r = int(near)
     return int(r)
 
