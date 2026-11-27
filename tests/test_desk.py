@@ -783,3 +783,24 @@ class KeepAfterLoadingTests(LedgerCase):
         self.assertEqual(desk.round_qty(4_500, 10_000, 1e9, 1_223), 5_000)
         self.assertEqual(desk.round_qty(1_900, 1_900, 1e9, 2_499), 1_900)   # buy limit still wins
         self.assertEqual(desk.round_qty(3_300, 10_000, 1e9, 1_222), 3_300)  # not near 1/2/5: unchanged
+
+
+class SizeUpAndCutTests(unittest.TestCase):
+    def test_deep_unflagged_markets_get_bigger_in_watching_mode(self):
+        watching = {"hold_hours": 2}
+        self.assertEqual(rm.deep_mult(watching, 3_000_000, 425, []), 2.0)           # grimoire page: 1.3bn a day
+        self.assertEqual(rm.deep_mult(watching, 3_000_000, 425, ["falling"]), 1.0)  # flagged: unchanged
+        self.assertEqual(rm.deep_mult(watching, 347_000, 627, []), 1.0)             # 218m a day: not deep
+        self.assertEqual(rm.deep_mult({"hold_hours": 12}, 3_000_000, 425, []), 1.0)  # away/overnight: already long window
+
+    def test_flips_are_cut_after_two_days(self):
+        s = {"cfg": {"tax_rate": 0.02}}
+        it = {"name": "X", "high": 900, "low": 880, "h1": 900, "h24": 900, "l1": 880, "l24": 880, "lowTime": 1, "highTime": 1}
+        def hold(h):
+            since = (desk.now() - dt.timedelta(hours=h)).isoformat()
+            return {"qty": 10, "cost": 10_000, "since": since, "strategy": "spread"}
+        p, note = desk.sell_target(s, it, hold(30))
+        self.assertGreaterEqual(p, 1_021)                     # day 1-2: never below break-even
+        p, note = desk.sell_target(s, it, hold(50))
+        self.assertEqual(p, 899)                              # day 2+: cut to the market (robust high - 1)
+        self.assertIn("cutting the loss", note)

@@ -51,6 +51,8 @@ DEFAULT_CFG = {
     "watchlist": rm.DEFAULT_WATCHLIST,
     "blacklist": [],          # items the user won't trade (e.g. being removed from the game)
     "max_price": 50_000_000,  # user: no high-value items / combat gear unless very safe
+    "deep_gp": 500_000_000,   # watching mode: an unflagged market trading this much gold a day ...
+    "deep_mult": 2.0,         # ... is sized for a window this many times longer (bigger trades)
 }
 DEFAULT_STATE = {
     "version": 3, "capital": 100_000_000, "cash": 100_000_000, "cfg": DEFAULT_CFG,
@@ -381,7 +383,9 @@ def sell_target(s, it, hold, planned=None, st=None):
     rp = rm.ref_prices(it, st)
     base = rp[1] if rp else (planned or be)
     days = hours_since(hold["since"]) / 24
-    patience = {"dip": 5, "away": hold.get("hold_days", 3) + 1}.get(hold.get("strategy"), 2)
+    # flips: profit target for a day, the market (never below break-even) until day 2, then cut the loss (user, 27 Nov:
+    # Magic frame, Dragonkin bones and Vital spark sat for 5-6 days while the price fell)
+    patience = {"dip": 5, "away": hold.get("hold_days", 3) + 1}.get(hold.get("strategy"), 1)
     if days < patience:
         # dips aim for the planned recovery price; flips follow the live market
         return max(planned or 0 if hold.get("strategy") in ("dip", "away") else 0, base, be), None

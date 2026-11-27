@@ -250,6 +250,15 @@ def busy_hours(hours, flags, cfg):
     return legs * gap, (0.7 if any("falling" in f for f in flags) else 1.0)
 
 
+def deep_mult(cfg, price, flow, flags) -> float:
+    """Watching mode (offers sized to fill in ~2h) under-sizes the deep markets. For an unflagged market that
+    trades at least `deep_gp` gold a day, size for a longer fill window (`deep_mult` x). Away plans already
+    use long windows, so they are left alone."""
+    if cfg.get("hold_hours", 12) > 4 or flags:
+        return 1.0
+    return cfg.get("deep_mult", 2.0) if flow * price >= cfg.get("deep_gp", 500_000_000) else 1.0
+
+
 def suggest(it, st, cfg, budget, watch=False) -> list[dict]:
     """Spread flips (buy at instant-sell+1, sell at instant-buy-1) and dip buys for one item."""
     rp = ref_prices(it, st)
@@ -264,7 +273,8 @@ def suggest(it, st, cfg, budget, watch=False) -> list[dict]:
 
     def push(strategy, b, s_, extra=()):
         profit = net_sell(s_, cfg["tax_rate"], it["name"]) - b
-        qty = math.floor(min(limit, budget / b, cfg["capture"] * flow * hold)) if b > 0 else 0
+        qty = (math.floor(min(limit, budget / b, cfg["capture"] * flow * hold * deep_mult(cfg, b, flow, flags)))
+               if b > 0 else 0)
         if profit <= 0 or qty < 1 or profit / b < cfg.get("min_roi", 0):
             return
         fl = flags + list(extra)
@@ -304,8 +314,9 @@ def suggest_process(recipe, mk, stats, cfg, budget, watch=True) -> dict | None:
     profit_out = net_sell(out_sell, rate, outp) - ratio * in_buy
     hold = cfg["hold_hours"] / 24
     inflow, outflow = min(a["lv24"], sa["lowflow"]), min(b["hv24"], sb["highflow"])
+    dm = deep_mult(cfg, out_sell, outflow, [])
     n = math.floor(min((a["limit"] or math.inf) / ratio, budget / (ratio * in_buy),
-                       cfg["capture"] * outflow * hold, cfg["capture"] * inflow * hold / ratio))
+                       cfg["capture"] * outflow * hold * dm, cfg["capture"] * inflow * hold * dm / ratio))
     if profit_out <= 0 or n < 1 or profit_out / (ratio * in_buy) < cfg.get("min_roi", 0):
         return None
     # week consistency, hour by hour: output at its avg high vs inputs at their avg low
