@@ -336,6 +336,19 @@ def limit_state(s, it) -> tuple[float, float, str | None]:
 HALF_LIFE_DAYS = 14
 
 
+def cooling_off(s, name, days=14, min_trades=2, floor=0.01) -> str | None:
+    """Skip an item whose own recent sales earned (almost) nothing, whatever the planner thinks of today's
+    spread. Vital spark: 4 sales in 3 weeks, +40k on 7m spent, yet each new plan promised ~6 %."""
+    rows = [r for r in s["realized"] if r["name"] == name and hours_since(r["at"]) <= days * 24]
+    if len(rows) < min_trades:
+        return None
+    cost = sum(r["buy_each"] * r["qty"] for r in rows)
+    profit = sum(r["profit"] for r in rows)
+    if cost > 0 and profit / cost < floor:
+        return f"cooling off: {len(rows)} sales in {days}d earned {profit / cost:+.1%}"
+    return None
+
+
 def track_record(s) -> dict:
     """Per item, from the ledger: time-decayed wins/losses of finished sales and buy offers that
     were aborted without a single fill. Returns {name: {...}} with a ranking multiplier."""
@@ -637,6 +650,12 @@ def cmd_plan(args):
                 h = x.get("hours") or 6
                 x["score"] *= max(h, 6) / max(h + wait, 6)
                 x["flags"] = x["flags"] + [f"buy limit resets {clock}, fills after that"]
+        cold = {}
+        for x in ideas:
+            n_ = x["item"]["name"]
+            if n_ not in cold:
+                cold[n_] = cooling_off(s, n_)
+        ideas = [x for x in ideas if not cold[x["item"]["name"]]]
         for x in ideas:  # learn from our own results: proven items up, failures down
             g = record.get(x["item"]["name"])
             if g:

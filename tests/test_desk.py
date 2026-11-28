@@ -804,3 +804,25 @@ class SizeUpAndCutTests(unittest.TestCase):
         p, note = desk.sell_target(s, it, hold(50))
         self.assertEqual(p, 899)                              # day 2+: cut to the market (robust high - 1)
         self.assertIn("cutting the loss", note)
+
+
+class CoolingOffTests(unittest.TestCase):
+    def _s(self, rows):
+        at = desk.now().isoformat()
+        return {"realized": [{"name": "Vital spark", "qty": q, "buy_each": b, "sell_each": b, "tax": 0, "profit": p, "at": at}
+                             for q, b, p in rows]}
+
+    def test_flat_recent_sales_cool_the_item_off(self):
+        s = self._s([(1, 73_246, -1_465), (85, 73_246, 85), (10, 67_001, 42_000)])
+        self.assertIn("cooling off", desk.cooling_off(s, "Vital spark"))
+
+    def test_good_recent_sales_do_not(self):
+        s = self._s([(100, 65_000, 1_000_000), (50, 65_000, 400_000)])
+        self.assertIsNone(desk.cooling_off(s, "Vital spark"))
+
+    def test_one_sale_is_not_enough_and_old_sales_do_not_count(self):
+        self.assertIsNone(desk.cooling_off(self._s([(85, 73_246, 85)]), "Vital spark"))
+        s = self._s([(85, 73_246, 85), (85, 73_246, 85)])
+        for r in s["realized"]:
+            r["at"] = (desk.now() - dt.timedelta(days=30)).isoformat()
+        self.assertIsNone(desk.cooling_off(s, "Vital spark"))
